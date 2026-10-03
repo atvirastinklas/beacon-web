@@ -410,7 +410,7 @@
       "sortActivity": "Aktyvumas",
       "sortName": "Pavadinimas",
       "deviceInfo": "Įrenginys",
-      "brokers": "Tarpininkai",
+      "brokers": "Brokeriai",
       "copyLinkShort": "Kopijuoti nuorodą",
       "advertsHeard": "Užfiksuoti anonsai",
       "noAdverts": "Anonsų neužfiksuota",
@@ -657,8 +657,8 @@
       "hashSize": "Maišos dyd.",
       "pathData": "Maršruto duomenys",
       "originPubkey": "Pradinio siuntėjo viešasis raktas",
-      "payloadBreakdown": "Naudingosios apkrovos sandara",
-      "payloadData": "Naudingosios apkrovos duomenys",
+      "payloadBreakdown": "Duomenų sandara",
+      "payloadData": "Duomenys",
       "bytes_one": "{{count}} baitas",
       "bytes_few": "{{count}} baitai",
       "bytes_many": "{{count}} baito",
@@ -959,7 +959,7 @@
       "field": {
         "hash": "Maišos kodas",
         "path": "Paskutinis maršrutas",
-        "payload": "Naudingoji apkrova"
+        "payload": "Duomenys"
       }
     },
     "search": {

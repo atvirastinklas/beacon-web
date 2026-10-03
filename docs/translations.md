@@ -1,7 +1,8 @@
 # Translating Beacon
 
-The header language picker starts in English and saves the selected language in
-this browser; an unset or empty string in a catalog falls back to English.
+The header language picker defaults to Lithuanian when no valid saved selection
+is available and saves the selected language in this browser. Valid saved choices
+are preserved; an unset or empty string in a catalog falls back to English.
 
 ## Add a language
 

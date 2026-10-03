@@ -38,6 +38,10 @@ if (!globalThis.localStorage) {
   });
 }
 
+// Component suites use English copy; fresh-initialization tests import i18n with isolated storage.
+await i18n.changeLanguage("en");
+try { localStorage.clear(); } catch { /* storage can be unavailable */ }
+
 afterEach(async () => {
   cleanup();
   await i18n.changeLanguage("en");

@@ -23,7 +23,7 @@ export function readLanguagePreference(): string {
   } catch {
     // Storage can be unavailable; language selection still works for this visit.
   }
-  return "en";
+  return "lt";
 }
 
 const i18n = createInstance();

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import type { WsManager } from "../../../src/api/ws-manager";
 import type { WsPacketObservation } from "../../../src/types/ws";
+import type { ChannelMessage } from "../../../src/features/channels/types";
 
 const captures = vi.hoisted(() => ({ nodes: vi.fn(), analyze: vi.fn(), share: {} as Record<string, string | null>, mobile: false, regionKey: "*", iatas: undefined as string[] | undefined, resolved: true }));
 vi.mock("../../../src/hooks/useMediaQuery", async importOriginal => ({
@@ -32,9 +33,14 @@ import { MapView } from "../../../src/features/map/MapView";
 
 function mount(url = "/?tab=Map") {
   const handlers = new Set<(data: WsPacketObservation["data"]) => void>();
+  const messages = new Set<(data: ChannelMessage) => void>();
   const source = {
     getStatus: () => "connected" as const,
     onStatusChange: () => () => {},
+    onChannelMessage: vi.fn((handler: (data: ChannelMessage) => void) => {
+      messages.add(handler);
+      return () => { messages.delete(handler); };
+    }),
     onPacketObservation: vi.fn((handler: (data: WsPacketObservation["data"]) => void) => {
       handlers.add(handler);
       return () => { handlers.delete(handler); };
@@ -45,7 +51,7 @@ function mount(url = "/?tab=Map") {
     <MemoryRouter initialEntries={[url]}>{show && <MapView wsManager={source as unknown as WsManager} selectedNodeId={null} onSelectNode={vi.fn()} onAnalyzePacket={captures.analyze} />}</MemoryRouter>
   </QueryClientProvider>;
   const view = render(root());
-  return { ...view, source, handlers, redraw: (show = true) => view.rerender(root(show)), emit: (data: WsPacketObservation["data"]) => act(() => { for (const handler of handlers) handler(data); }) };
+  return { ...view, source, handlers, messages, redraw: (show = true) => view.rerender(root(show)), emit: (data: WsPacketObservation["data"]) => act(() => { for (const handler of handlers) handler(data); }), emitMessage: (data: ChannelMessage) => act(() => { for (const handler of messages) handler(data); }) };
 }
 
 function observation(summary: string): WsPacketObservation["data"] {
@@ -89,6 +95,28 @@ describe("Live Map clustering", () => {
 });
 
 describe("Map packet-log integration", () => {
+  it("joins decoded group content from the existing message stream without losing packet identity or sightings", async () => {
+    const view = mount("/?tab=Map&flow=on");
+    const packet = observation("opaque fallback");
+    packet.packet.payloadType = 5;
+    const message = { id: 1, packetHash: packet.packetHash, channelHash: "public", senderName: "Alice", content: "Hello from the mesh", sentAt: Date.now() };
+    view.emitMessage(message);
+    view.emit(packet);
+    const row = await screen.findByRole("button", { name: "Packet details: GRP_TXT · Hello from the mesh · Sender: Alice" });
+    expect(row).toHaveTextContent("Hello from the mesh");
+    expect(row).toHaveTextContent("Alice");
+    expect(row).not.toHaveTextContent("Sender:");
+    view.emit(packet);
+    expect(await screen.findByLabelText("2 sightings in this feed")).toBeVisible();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    view.emitMessage({ ...message, content: "Late decoded update" });
+    expect(await screen.findByText("Late decoded update")).toBeVisible();
+    expect(screen.getByLabelText("2 sightings in this feed")).toBeVisible();
+    fireEvent.click(row);
+    expect(captures.analyze).toHaveBeenCalledExactlyOnceWith(packet.packetHash);
+    fireEvent.click(screen.getByRole("button", { name: "Stop live map packet flow" }));
+    expect(view.messages.size).toBe(0);
+  });
   it("forwards the current packet hash after region reset without retaining inline details", async () => {
     captures.regionKey = "VNO";
     captures.iatas = ["VNO"];
@@ -119,18 +147,25 @@ describe("Map packet-log integration", () => {
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 
-  it("updates one row per repeated hash with local sightings and moves it to the top", async () => {
+  it("updates repeated hashes in place without changing first-heard time or order", async () => {
     const view = mount("/?tab=Map&flow=on");
-    view.emit(observation("First packet"));
-    view.emit(observation("Second packet"));
+    const first = observation("First packet");
+    first.observation.heardAt = 1_700_000_000_000;
+    const second = observation("Second packet");
+    second.observation.heardAt = first.observation.heardAt + 1_000;
+    view.emit(first);
+    view.emit(second);
     await screen.findByText("2/100");
     const repeat = observation("First packet");
     repeat.packet.observationCount = 45;
+    repeat.observation.heardAt = second.observation.heardAt + 60_000;
     repeat.observation.observerName = "Latest observer";
     view.emit(repeat);
     await screen.findByLabelText("2 sightings in this feed");
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("First packet");
+    expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("Second packet");
+    expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("First packet");
+    expect(screen.getAllByRole("listitem")[1].querySelector("time")).toHaveAttribute("datetime", new Date(first.observation.heardAt).toISOString());
     fireEvent.click(screen.getByRole("button", { name: /Packet details: ADVERT · First packet/ }));
     expect(captures.analyze).toHaveBeenCalledExactlyOnceWith("First packet");
     expect(screen.getByLabelText("2 sightings in this feed")).toHaveTextContent("×2");
@@ -141,12 +176,14 @@ describe("Map packet-log integration", () => {
     const view = mount();
     expect(screen.queryByRole("region", { name: "Live packets" })).not.toBeInTheDocument();
     expect(view.handlers.size).toBe(0);
+    expect(view.messages.size).toBe(0);
     view.emit(observation("Outside Live mode"));
     fireEvent.click(screen.getByRole("button", { name: "Play live map packet flow" }));
     expect(screen.getByRole("region", { name: "Live packets" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Live packets" })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Waiting for packets…")).toBeVisible();
     expect(view.handlers.size).toBe(1);
+    expect(view.messages.size).toBe(1);
     view.emit(observation("Live observation"));
     expect(await screen.findByText("Live observation")).toBeVisible();
     expect(screen.queryByText("Outside Live mode")).not.toBeInTheDocument();
@@ -154,9 +191,11 @@ describe("Map packet-log integration", () => {
     view.emit(observation("While collapsed"));
     expect(await screen.findByText("2/100")).toBeVisible();
     expect(view.handlers.size).toBe(1);
+    expect(view.messages.size).toBe(1);
     fireEvent.click(screen.getByRole("button", { name: "Stop live map packet flow" }));
     expect(screen.queryByRole("region", { name: "Live packets" })).not.toBeInTheDocument();
     expect(view.handlers.size).toBe(0);
+    expect(view.messages.size).toBe(0);
     view.emit(observation("Between Live sessions"));
     fireEvent.click(screen.getByRole("button", { name: "Play live map packet flow" }));
     expect(screen.getByRole("button", { name: "Live packets" })).toHaveAttribute("aria-expanded", "true");
@@ -167,6 +206,7 @@ describe("Map packet-log integration", () => {
     expect(screen.queryByText("Between Live sessions")).not.toBeInTheDocument();
     expect(view.handlers.size).toBe(1);
     expect(view.source.onPacketObservation).toHaveBeenCalledTimes(2);
+    expect(view.source.onChannelMessage).toHaveBeenCalledTimes(2);
   });
 
   it("keeps collecting while collapsed, then shows newest observations first", async () => {
@@ -190,6 +230,7 @@ describe("Map packet-log integration", () => {
     view.redraw();
     expect(screen.queryByRole("region", { name: "Live packets" })).not.toBeInTheDocument();
     expect(view.handlers.size).toBe(0);
+    expect(view.messages.size).toBe(0);
     captures.mobile = false;
     view.redraw();
     expect(screen.getByText("Waiting for packets…")).toBeVisible();
@@ -197,6 +238,7 @@ describe("Map packet-log integration", () => {
     expect(view.handlers.size).toBe(1);
     view.redraw(false);
     expect(view.handlers.size).toBe(0);
+    expect(view.messages.size).toBe(0);
     expect(screen.queryByRole("region", { name: "Live packets" })).not.toBeInTheDocument();
   });
 
@@ -205,6 +247,7 @@ describe("Map packet-log integration", () => {
     const view = mount("/?tab=Map&flow=on");
     expect(screen.getByText("Loading region…")).toBeVisible();
     expect(view.handlers.size).toBe(0);
+    expect(view.messages.size).toBe(0);
     captures.resolved = true;
     view.redraw();
     view.emit(observation("Previous scope"));

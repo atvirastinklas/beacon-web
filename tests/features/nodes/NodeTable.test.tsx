@@ -3,7 +3,7 @@ import { render, screen, within, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { NodeTable } from "../../../src/features/nodes/NodeTable";
 import { getNodesPage } from "../../../src/api/client";
-import i18n from "../../../src/i18n";
+
 import type { NodeSummary } from "../../../src/features/nodes/types";
 import type { WsManager } from "../../../src/api/ws-manager";
 
@@ -59,37 +59,13 @@ describe("NodeTable location column", () => {
 });
 
 describe("NodeTable IATA badge tooltip", () => {
-  it("shows a translated last-heard label, in English and French", async () => {
+  it("shows the relative last-heard time on hover", async () => {
     const lastHeard = Date.now() - 7 * 86_400_000;
     mount([node({ id: "node-iata", name: "IATA node", iatas: [{ iata: "YOW", lastHeard }] })]);
     const badge = await screen.findByText("YOW");
-    const trigger = badge.parentElement!;
-
-    fireEvent.mouseEnter(trigger);
+    fireEvent.mouseEnter(badge.parentElement!);
     expect(screen.getByRole("tooltip")).toHaveTextContent("last heard 7d ago");
-    fireEvent.mouseLeave(trigger);
-
-    await i18n.changeLanguage("fr");
-    fireEvent.mouseEnter(trigger);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("dernier contact il y a 7 j");
   });
 });
 
-describe("NodeTable in French", () => {
-  it("translates column headers and filter labels", async () => {
-    await i18n.changeLanguage("fr");
-    mount([node({ id: "node-fr", name: "Nœud FR" })]);
-    await screen.findByText("Nœud FR");
-    for (const header of ["Nom", "Zones", "Voisins", "Position"]) {
-      expect(screen.getByRole("columnheader", { name: new RegExp(header) })).toBeInTheDocument();
-    }
-    expect(screen.getByRole("toolbar", { name: "Filtres des nœuds" })).toHaveTextContent("Chemins multi-octets");
-    expect(screen.getByRole("toolbar")).toHaveTextContent("Indifférent");
-  });
-
-  it("shows the French empty state", async () => {
-    await i18n.changeLanguage("fr");
-    mount([]);
-    expect(await screen.findByText("Aucun nœud")).toBeInTheDocument();
-  });
-});
+;

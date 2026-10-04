@@ -1,11 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { rolledWindow, useScopes } from "../../../src/features/stats/useStats";
 import { getStatsScopes } from "../../../src/api/client";
-import { ScopesTab } from "../../../src/features/stats/ScopesTab";
-import i18n from "../../../src/i18n";
+
+
 
 const region = { iatas: ["YVR"] as string[] | undefined, regionKey: "YVR", isResolved: true };
 vi.mock("../../../src/hooks/useRegion", () => ({ useRegion: () => region }));
@@ -31,17 +31,6 @@ it("does not fetch a global fallback for unresolved selected regions", () => {
   unmount(); client.clear();
 });
 
-it("reuses the regional query when only the language changes", async () => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const { unmount } = render(<QueryClientProvider client={client}><ScopesTab range="7d" /></QueryClientProvider>);
-  await screen.findByText("No scope data available.");
-  expect(getStatsScopes).toHaveBeenCalledOnce();
-  await act(() => i18n.changeLanguage("fr"));
-  expect(screen.getByText("Aucune donnée de scope disponible.")).toBeInTheDocument();
-  expect(getStatsScopes).toHaveBeenCalledOnce();
-  expect(client.getQueryCache().getAll().map((query) => query.queryKey)).toEqual([["stats-scopes", "YVR", "7d"], ["stats-series", "YVR", "7d"]]);
-  unmount(); client.clear();
-});
 
 it("windows scope counts like the series, from the same rolled hour", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });

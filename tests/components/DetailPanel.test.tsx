@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { DetailPanel } from "../../src/components/DetailPanel";
-import i18n from "../../src/i18n";
 
 function renderPanel(props: { collapsible?: boolean; onClose?: () => void } = {}) {
   const onClose = props.onClose ?? vi.fn();
@@ -42,13 +41,12 @@ describe("DetailPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("uses French defaults for its controls and states", async () => {
-    await i18n.changeLanguage("fr");
-    const { rerender } = render(<DetailPanel title="Nœud" onClose={vi.fn()} collapsible isLoading><p /></DetailPanel>);
-    expect(screen.getByRole("button", { name: "Fermer le panneau de détails" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Réduire le panneau de détails" })).toBeTruthy();
-    expect(screen.getByText("Chargement…")).toBeTruthy();
-    rerender(<DetailPanel title="Nœud" onClose={vi.fn()} notFound><p /></DetailPanel>);
-    expect(screen.getByText("Introuvable")).toBeTruthy();
+  it("shows loading and not-found states while retaining its controls", () => {
+    const { rerender } = render(<DetailPanel title="Node" onClose={vi.fn()} collapsible isLoading><p /></DetailPanel>);
+    expect(screen.getByRole("button", { name: "Close detail panel" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Minimize detail panel" })).toBeTruthy();
+    expect(screen.getByText("Loading...")).toBeTruthy();
+    rerender(<DetailPanel title="Node" onClose={vi.fn()} notFound><p /></DetailPanel>);
+    expect(screen.getByText("Not found")).toBeTruthy();
   });
 });

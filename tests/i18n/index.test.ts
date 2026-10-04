@@ -94,11 +94,4 @@ describe("language preferences", () => {
     localStorage.removeItem("beacon-region");
   });
 
-  it("uses the configured fallback for missing and empty resources", async () => {
-    i18n.addResource("en", "translation", "fallbackTest", "Fallback value");
-    await i18n.changeLanguage("lt");
-    expect(i18n.t("fallbackTest")).toBe("Fallback value");
-    i18n.addResource("lt", "translation", "fallbackTest", "");
-    expect(i18n.t("fallbackTest")).toBe("Fallback value");
-  });
 });

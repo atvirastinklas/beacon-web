@@ -5,7 +5,7 @@ import { MemoryRouter, useSearchParams } from "react-router-dom";
 import { RouteDetailPanel } from "../../../src/features/routes/RouteDetailPanel";
 import { getRouteEvidence } from "../../../src/api/client";
 import type { KnownRoute, RouteEvidence } from "../../../src/types/api";
-import i18n from "../../../src/i18n";
+
 
 vi.mock("../../../src/api/client", () => ({ getRouteEvidence: vi.fn(), isNotFound: () => false }));
 const key = "a".repeat(32);
@@ -86,13 +86,6 @@ describe("route detail", () => {
     expect(getRouteEvidence).not.toHaveBeenCalled();
   });
 
-  it("distinguishes an unmatchable route and translates the panel", async () => {
-    await i18n.changeLanguage("fr");
-    vi.mocked(getRouteEvidence).mockResolvedValue({ ...page, matchAvailable: false, items: [], hasMore: false });
-    mount();
-    expect(await screen.findByText(/Ce trajet ne peut pas être comparé/)).toBeInTheDocument();
-    await i18n.changeLanguage("en");
-  });
 
   it("keeps a failed next page separate from the reports already loaded", async () => {
     mount(); await screen.findByText("Garden");
@@ -111,13 +104,4 @@ describe("route detail", () => {
     expect(await screen.findByText("12.00")).toHaveClass("text-green");
   });
 
-  it("translates the summary section titles and labels", async () => {
-    await i18n.changeLanguage("fr");
-    vi.mocked(getRouteEvidence).mockReturnValue(new Promise(() => {}));
-    mount({ listed: route });
-    expect(screen.getByText("Détail du trajet")).toBeInTheDocument();
-    expect(screen.getByText("Résumé")).toBeInTheDocument();
-    expect(screen.getByText("Horodatages")).toBeInTheDocument();
-    expect(screen.getByText("Première réception")).toBeInTheDocument();
-  });
 });

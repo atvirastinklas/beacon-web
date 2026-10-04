@@ -3,7 +3,7 @@ import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ObserverTab } from "../../../src/features/stats/ObserverTab";
-import i18n from "../../../src/i18n";
+
 import { ApiError } from "../../../src/api/client";
 import type { Observer } from "../../../src/features/observers/types";
 import type { ObserverActivity, ObserverTelemetry, TelemetryPoint } from "../../../src/features/stats/types";
@@ -198,22 +198,7 @@ describe("Observer dashboard hierarchy", () => {
     renderTab();
     expect(screen.getByText(/Packet totals unavailable/)).toBeInTheDocument();
   });
-  it("provides French monitoring labels", async () => {
-    await i18n.changeLanguage("fr");
-    renderTab();
-    expect(screen.getByText("Paquets reçus")).toBeInTheDocument();
-    expect(screen.getByText("Temps radio TX / RX · 24 h")).toBeInTheDocument();
-    expect(screen.queryByText("Détails de l’appareil")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Copier la clé publique/ })).toBeInTheDocument();
-  });
 
-  it("names the busy series in French", async () => {
-    await i18n.changeLanguage("fr");
-    renderTab();
-    const options = screen.getAllByTestId("chart").map((c) => c.getAttribute("data-option") ?? "");
-    expect(options.some((o) => o.includes('"name":"Occupation"'))).toBe(true);
-    expect(options.some((o) => o.includes('"name":"Busy"'))).toBe(false);
-  });
 
   it("keeps packet metrics without the removed traffic text badge", () => {
     const now = Date.now();

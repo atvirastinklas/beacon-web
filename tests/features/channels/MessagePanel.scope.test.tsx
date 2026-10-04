@@ -6,7 +6,7 @@ import { ChannelList } from "../../../src/features/channels/ChannelList";
 import type { ChannelMessage, ChannelSummary } from "../../../src/features/channels/types";
 import type { WsManager } from "../../../src/api/ws-manager";
 import { getChannelMessagesPage, getChannels } from "../../../src/api/client";
-import i18n from "../../../src/i18n";
+
 
 vi.mock("../../../src/api/client", () => ({
   getChannelMessagesPage: vi.fn(),
@@ -69,14 +69,6 @@ describe("channel scope evidence", () => {
     show(<MessagePanel channel={channel} heardCounts={{}} regionKey="YOW" />);
     const chip = await screen.findByText("#yow");
     expect(chip).toHaveClass("border", "px-2", "py-0.5", "font-semibold");
-  });
-  it("switches French labels without refetching or changing protocol names", async () => {
-    show(<MessagePanel channel={channel} heardCounts={{}} regionKey="YOW" />);
-    await screen.findByText("#yow");
-    await act(() => i18n.changeLanguage("fr"));
-    expect(screen.getByText("Portée inconnue")).toBeInTheDocument();
-    expect(screen.getByText("#yow")).toBeInTheDocument();
-    expect(getChannelMessagesPage).toHaveBeenCalledTimes(1);
   });
   it("isolates scope history and live messages, preserving page cursors and channel identity", async () => {
     vi.mocked(getChannelMessagesPage).mockImplementation(async (_id, p) =>

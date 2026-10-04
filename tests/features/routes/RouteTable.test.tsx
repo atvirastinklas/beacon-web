@@ -15,7 +15,7 @@ import {
   getRegion,
 } from "../../../src/api/client";
 import type { KnownRoute, CrossIATARoute } from "../../../src/types/api";
-import i18n from "../../../src/i18n";
+
 
 vi.mock("../../../src/api/client", () => ({
   getKnownRoutesPage: vi.fn(),
@@ -193,14 +193,6 @@ it("preserves a shared saved route while a named region resolves", async () => {
   client.clear();
 });
 
-it("translates the search bar, headers and empty state", async () => {
-  await i18n.changeLanguage("fr");
-  renderTable();
-  expect(await screen.findByText("Chercher un trajet")).toBeInTheDocument();
-  expect(screen.getByLabelText("Hash de départ")).toHaveAttribute("placeholder", "hash de départ");
-  expect(screen.getByRole("button", { name: "Rechercher" })).toBeInTheDocument();
-  expect(await screen.findByText("Aucun trajet")).toBeInTheDocument();
-});
 
 it("shows no routes for a region with no IATAs", async () => {
   vi.mocked(getRegions).mockResolvedValue([{ id: 2, slug: "empty", name: "Empty" }]);

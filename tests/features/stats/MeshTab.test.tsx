@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MeshTab } from "../../../src/features/stats/MeshTab";
-import i18n from "../../../src/i18n";
+
 import { getStatsSeries, getPayloadBreakdown, getTopNodes, getTopObservers, getRadioPresets, getStatsScopes, getStatsNodeTypes } from "../../../src/api/client";
 import type { EChartsOption } from "../../../src/features/stats/echarts-setup";
 import type { SeriesValues, StatsSeries, StatsRange } from "../../../src/features/stats/types";
@@ -207,33 +207,7 @@ it("labels the KPI cards with the rolled 24h window whatever the selected range"
   expect(within(card("Active areas")).getByText("4")).toBeInTheDocument();
 });
 
-it("shows French labels for the KPIs, chart titles and scope table", async () => {
-  await act(() => i18n.changeLanguage("fr"));
-  mount(); await loaded();
-  expect(within(card("Paquets totaux")).getByText("111")).toBeInTheDocument();
-  expect(screen.getAllByText("Dernières 24 h · jusqu’à 03:00 UTC")).toHaveLength(4);
-  expect(screen.getByText("Observations · 24 h")).toBeInTheDocument();
-  expect(screen.getByText("Meilleurs nœuds · 24 h")).toBeInTheDocument();
-  expect(screen.getByText("Meilleurs observateurs · 24 h")).toBeInTheDocument();
-  expect(screen.getByText("Types de paquets · 24 h")).toBeInTheDocument();
-  const typesChart = within(card("Types de nœuds · historique complet")).getByTestId("chart");
-  expect(typesChart.textContent).toContain("NŒUDS");
-  fireEvent.click(screen.getByText("Scopes", { exact: true }));
-  const scopeList = screen.getByText("Scopes", { exact: true }).closest("details")!;
-  expect(within(scopeList).getByText("Scope")).toBeInTheDocument();
-  expect(within(scopeList).getByText("Nœuds")).toBeInTheDocument();
-  await act(() => i18n.changeLanguage("en"));
-});
 
-it("names the observation and preset chart series in French", async () => {
-  await act(() => i18n.changeLanguage("fr"));
-  mount(); await loaded();
-  const obsChart = within(card("Observations · 24 h")).getByTestId("chart").textContent;
-  expect(obsChart).toContain('"legend":{"data":["Observations","Paquets uniques"]');
-  const presetChart = within(card("Préréglages radio · historique complet")).getByTestId("chart").textContent;
-  expect(presetChart).toContain('"Nœuds","Observateurs"');
-  await act(() => i18n.changeLanguage("en"));
-});
 
 it("asks for an empty region by slug rather than falling back to every IATA", async () => {
   region.iatas = undefined; region.regionKey = "region:empty"; region.emptyRegion = "empty";

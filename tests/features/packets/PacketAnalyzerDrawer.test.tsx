@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
-import i18n from "../../../src/i18n";
+
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { PacketAnalyzerDrawer } from "../../../src/features/packets/PacketAnalyzerDrawer";
 import type { PacketDetail } from "../../../src/types/api";
@@ -97,13 +97,6 @@ describe("packet reception evidence", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("That observation is no longer available");
     expect(screen.queryByText("Raw Packet")).not.toBeInTheDocument();
   });
-  it("explains TRACE and missing-report semantics in French", async () => {
-    const d = reports(); d.header.payloadType = PayloadType.TRACE; d.observations = [];
-    await i18n.changeLanguage("fr");
-    render(<MemoryRouter><PacketAnalyzerDrawer detail={d} selectedObservationId={null} onClose={() => {}} /></MemoryRouter>);
-    expect(screen.getByRole("region", { name: "Observations" })).toHaveTextContent("itinéraire prévu");
-    expect(screen.getByText("Aucune observation pour ce paquet.")).toBeInTheDocument();
-  });
   it("keeps a later selected path visible while bounding the initial list", () => {
     const d = reports();
     d.observations = Array.from({ length: 12 }, (_, i) => ({ ...d.observations[0], id: i + 1, observerId: `observer-${i}`, pathBytes: i.toString(16).padStart(4, "0") }));
@@ -118,31 +111,6 @@ describe("packet reception evidence", () => {
   });
 });
 
-describe("PacketAnalyzerDrawer in French", () => {
-  it("translates the empty state and close control", async () => {
-    await i18n.changeLanguage("fr");
-    render(<MemoryRouter><PacketAnalyzerDrawer detail={undefined} selectedObservationId={null} onClose={() => {}} /></MemoryRouter>);
-    expect(screen.getByText("Analyseur de paquets")).toBeInTheDocument();
-    expect(screen.getByText("Sélectionnez un paquet à analyser")).toBeInTheDocument();
-    expect(screen.getByLabelText("Fermer l’analyseur")).toBeInTheDocument();
-  });
-  it("translates the structure section and payload fields", async () => {
-    const d = makeDetail([]);
-    d.observations[0].pathBytes = "aabb";
-    d.header = { ...d.header, raw: "14", routeType: RouteType.TRANSPORT_FLOOD, routeTypeName: "TRANSPORT_FLOOD" };
-    d.transportCodes = { regionCode: 49240, subRegionCode: 0 };
-    d.parsedPayload = { type: "TEXT_MESSAGE", destinationHash: "aa", sourceHash: "bb", ciphertext: "0011" };
-    await i18n.changeLanguage("fr");
-    render(<MemoryRouter><PacketAnalyzerDrawer detail={d} selectedObservationId={1} onClose={() => {}} /></MemoryRouter>);
-    for (const text of ["Résumé", "Paquet brut", "Structure du paquet", "Octet d’en-tête", "Longueur du trajet", "Données du trajet", "Détail de la charge utile"]) {
-      expect(screen.getByText(text)).toBeInTheDocument();
-    }
-    expect(screen.getByText("Codes de transport").parentElement!).toHaveTextContent("Code de portée 58C0 (2B) = 49240");
-    expect(screen.getByText("Codes de transport").parentElement!).toHaveTextContent("aucune portée connue");
-    expect(screen.getByText("sauts=2")).toBeInTheDocument();
-    expect(screen.getByText("Chiffré — clé non disponible")).toBeInTheDocument();
-  });
-});
 
 describe("transport scope", () => {
   const transport = () => {

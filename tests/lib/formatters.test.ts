@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import i18n from "../../src/i18n";
+
 import {
   formatRadio,
   formatRadioParts,
@@ -149,14 +149,14 @@ describe("formatPropagation", () => {
 });
 
 describe("formatClockDrift", () => {
-  it("accepts translated direction labels without changing signs, magnitude or rounding", () => {
-    const labels = { inSync: "synchronisé", ahead: "en avance", behind: "en retard" };
-    expect(formatClockDrift(0, labels)).toBe("synchronisé");
-    expect(formatClockDrift(42, labels)).toBe("+42s en avance");
-    expect(formatClockDrift(-45, labels)).toBe("-45s en retard");
-    expect(formatClockDrift(432, labels)).toBe("+7m 12s en avance");
-    expect(formatClockDrift(-3670, labels)).toBe("-1h 1m en retard");
-    expect(formatClockDrift(3600, labels)).toBe("+1h 0m en avance");
+  it("accepts direction labels without changing signs, magnitude or rounding", () => {
+    const labels = { inSync: "in sync", ahead: "ahead", behind: "behind" };
+    expect(formatClockDrift(0, labels)).toBe("in sync");
+    expect(formatClockDrift(42, labels)).toBe("+42s ahead");
+    expect(formatClockDrift(-45, labels)).toBe("-45s behind");
+    expect(formatClockDrift(432, labels)).toBe("+7m 12s ahead");
+    expect(formatClockDrift(-3670, labels)).toBe("-1h 1m behind");
+    expect(formatClockDrift(3600, labels)).toBe("+1h 0m ahead");
   });
 
   it("labels a zero drift as in sync", () => {
@@ -222,15 +222,7 @@ describe("formatRadioParts", () => {
   });
 });
 
-describe("formatters in French", () => {
-  it("uses French unit words for uptime and daily rates", async () => {
-    await i18n.changeLanguage("fr");
-    expect(formatUptime(90061)).toBe("1 j 1 h 1 min");
-    expect(formatUptime(300)).toBe("5 min");
-    expect(formatRatePerDay(340, DAY_MS)).toBe("340/j");
-    expect(formatClockDrift(-3670, { inSync: "synchronisé", ahead: "en avance", behind: "en retard" })).toBe("-1 h 1 min en retard");
-  });
-
+describe("formatters", () => {
   it("keeps the compact English units", () => {
     expect(formatUptime(90061)).toBe("1d 1h 1m");
     expect(formatUptime(3660)).toBe("1h 1m");

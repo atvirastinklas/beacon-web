@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { trafficAreaLabel, trafficModel, trafficHeatmapOption, trafficTrendOption } from "../../../src/features/stats/traffic";
+import { trafficModel, trafficHeatmapOption, trafficTrendOption } from "../../../src/features/stats/traffic";
 import { readChartColors } from "../../../src/features/stats/chartTheme";
 import type { ObservationPoint } from "../../../src/features/stats/types";
 import i18n from "../../../src/i18n";
@@ -54,24 +54,4 @@ describe("traffic exploration", () => {
     expect(trafficTrendOption(populated, colors, i18n.getFixedT("en"))).toMatchObject({ animation: false, tooltip: { renderMode: "richText" }, series: [{ connectNulls: false }] });
   });
 
-  it("translates display labels and plural tooltips without changing the model, UTC cells or gaps", () => {
-    const model = trafficModel([point(end - 2 * hour, "YOW", 0), point(end, "YOW", 3), point(end, "", 1)], "24h", now);
-    const before = JSON.stringify(model), colors = readChartColors(), en = i18n.getFixedT("en"), fr = i18n.getFixedT("fr");
-    expect(trafficAreaLabel("YOW", fr)).toBe("YOW");
-    expect(trafficAreaLabel("Unassigned", fr)).toBe("Non attribué");
-    expect(trafficAreaLabel("Other IATAs", fr)).toBe("Autres zones");
-    const trend = trafficTrendOption(model, colors, fr);
-    expect(trend).toMatchObject({ useUTC: true, series: [{ name: "YOW", connectNulls: false }, { name: "Non attribué" }], aria: { label: { description: expect.stringContaining("lacunes") } } });
-    const chartData = (option: typeof trend) => (Array.isArray(option.series) ? option.series : [option.series]).map((series) => series?.data);
-    expect(chartData(trend)).toEqual(chartData(trafficTrendOption(model, colors, en)));
-    expect(model.hours.slice(-3).map((row) => row.total)).toEqual([0, null, 4]);
-    const heatmap = trafficHeatmapOption(model, colors, fr);
-    expect(heatmap).toMatchObject({ visualMap: { text: ["Plus", "Moins"], min: 0, max: 4 }, series: [{ name: "Observations", data: model.heatmap }] });
-    expect(chartData(heatmap)).toEqual(chartData(trafficHeatmapOption(model, colors, en)));
-    const tooltip = (option: typeof heatmap) => (option as { tooltip: { formatter: (item: { value: number[] }) => string } }).tooltip.formatter;
-    expect(tooltip(heatmap)({ value: [12, 1, 1] })).toBe("2026-09-19 12:00 UTC\n1 observation");
-    expect(tooltip(heatmap)({ value: [12, 1, 1200] })).toBe(`2026-09-19 12:00 UTC\n${(1200).toLocaleString()} observations`);
-    expect(tooltip(trafficHeatmapOption(model, colors, en))({ value: [12, 1, 1] })).toBe("2026-09-19 12:00 UTC\n1 observation");
-    expect(JSON.stringify(model)).toBe(before);
-  });
 });

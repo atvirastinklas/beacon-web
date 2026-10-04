@@ -5,7 +5,7 @@ import { TalkersTab } from "../../../src/features/stats/TalkersTab";
 import { getTopAdvertisers, getTopTalkers } from "../../../src/api/client";
 import type { StatsRange, TopAdvertiser, TopTalker } from "../../../src/features/stats/types";
 import type { EChartsOption } from "../../../src/features/stats/echarts-setup";
-import i18n from "../../../src/i18n";
+
 
 const region = { iatas: ["YVR"], regionKey: "YVR" };
 const advertisers: TopAdvertiser[] = [{ nodeId: "fixture-node", publicKey: "aa11bb22cc33dd44", nodeName: "Old advertiser", nodeType: 2, nodeTypeName: "Repeater", iata: "YVR", advertCount: 14, floodAdvertCount: 10, directAdvertCount: 4, lastHeard: 0 }];
@@ -139,14 +139,6 @@ it("lists a deleted node by public key without opening it", async () => {
   expect(onViewNode).not.toHaveBeenCalled();
 });
 
-it("renders the leaderboards in French", async () => {
-  await i18n.changeLanguage("fr");
-  mount();
-  await screen.findByText("Old advertiser");
-  expect(screen.getByText("Principaux annonceurs · 24 h")).toBeInTheDocument();
-  expect(screen.getByText("Principaux émetteurs · 24 h")).toBeInTheDocument();
-  expect(screen.getByText("Nœud")).toBeInTheDocument();
-});
 
 it("divides advert rates by the hours the rollup actually covers", async () => {
   // at 12:10 UTC the 11:00 hour isn't rolled yet, so a 24h request covers 23 rolled hours

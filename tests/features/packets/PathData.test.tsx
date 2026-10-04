@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ResolvedHopBlock } from "../../../src/features/packets/PathData";
-import i18n from "../../../src/i18n";
+
 import type { ResolvedHop } from "../../../src/types/api";
 
 // mobile/touch == no hover-capable pointer; desktop == has hover. Interaction modality keys off
@@ -60,14 +60,6 @@ describe("ResolvedHopBlock unresolved popover", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("No path resolution available");
   });
 
-  it("translates it to French", async () => {
-    setMobile(true);
-    await act(() => i18n.changeLanguage("fr"));
-    render(<ResolvedHopBlock hop={noMatchHop} label="ABC1" />);
-    fireEvent.click(screen.getByText("ABC1"));
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Aucune résolution de chemin disponible");
-    await act(() => i18n.changeLanguage("en"));
-  });
 });
 
 describe("ResolvedHopBlock (desktop)", () => {

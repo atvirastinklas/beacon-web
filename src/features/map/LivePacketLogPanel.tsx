@@ -22,6 +22,10 @@ function endpointName(hop: ResolvedHop | null | undefined): string | undefined {
   return node.name?.trim() || formatHex(node.id);
 }
 
+function normalizedPreview(value: string | undefined): string {
+  return value?.trim().replace(/\s+/g, " ") ?? "";
+}
+
 export function LivePacketLogPanel({ entries, status, regionPending = false, onAnalyzePacket }: LivePacketLogPanelProps) {
   const { t } = useTranslation();
   const contentId = useId();
@@ -55,35 +59,50 @@ export function LivePacketLogPanel({ entries, status, regionPending = false, onA
             </div>
           ) : (
             <ol className="divide-y divide-border-subtle">
-              {entries.map(({ id, data, seenCount }, index) => {
+              {entries.map(({ id, data, seenCount, message, firstHeardAt }, index) => {
                 const { packet, observation } = data;
                 const source = endpointName(observation.resolvedSource);
                 const destination = endpointName(observation.resolvedDestination);
                 const endpoints = source && destination ? `${source} → ${destination}` : source || destination;
-                const summary = endpoints || packet.summary || formatHex(data.packetHash);
+                const content = message?.content.trim() ? message.content : packet.summary?.trim() ? packet.summary : undefined;
+                const summary = content || endpoints;
+                const sender = message?.senderName.trim() || source;
+                // Embedded senders are message labels, not verified node IDs. Keep route context separate.
+                const routeContext = content ? source && source === sender ? destination && `→ ${destination}` : endpoints : undefined;
+                const primaryIsRoute = !!endpoints && normalizedPreview(endpoints) === normalizedPreview(summary);
+                const routePreview = routeContext && !primaryIsRoute && normalizedPreview(routeContext) !== normalizedPreview(summary) ? routeContext : undefined;
+                // Do not repeat a primary node-name summary or a source already shown by fallback routing.
+                // Exact whitespace-normalized comparison only: names embedded in a message stay meaningful.
+                const senderPreview = sender && (content || !endpoints) && !(primaryIsRoute && source === sender) && normalizedPreview(sender) !== normalizedPreview(summary)
+                  && normalizedPreview(sender) !== normalizedPreview(routePreview) ? sender : undefined;
+                const senderLabel = senderPreview ? `${t("packetAnalyzer.payload.sender")}: ${senderPreview}` : undefined;
+                const context = [senderPreview, routePreview].filter(Boolean).join(" · ");
+                const accessibleContext = [senderLabel, routePreview].filter(Boolean).join(" · ");
+                const accessibleContent = normalizedPreview(summary);
+                const accessiblePreview = accessibleContent.length > 160 ? `${accessibleContent.slice(0, 160)}…` : accessibleContent;
                 const payload = (PAYLOAD_TYPE_NAMES[packet.payloadType as PayloadTypeValue] ?? packet.payloadTypeName) || t("packetRow.unknown");
                 const route = ROUTE_TYPE_NAMES[packet.routeType as RouteTypeValue] ?? packet.routeTypeName;
                 const shortRoute = route.replace("TRANSPORT_", "T·");
-                const absolute = formatAbsolute(observation.heardAt);
+                const absolute = formatAbsolute(firstHeardAt);
+                const firstHeard = `${t("map.packetLog.firstHeard", { defaultValue: "First heard" })}: ${absolute}`;
                 const variant = VARIANT_CLASSES[payloadTypeVariant(packet.payloadType)];
                 const sightings = t("map.packetLog.sightings", { defaultValue: "{{count}} sightings in this feed", count: seenCount });
-                const hopCount = observation.pathLength?.hopCount;
-                const hops = hopCount === undefined ? t("map.packetLog.unknownHops", { defaultValue: "Hop count unavailable" })
-                  : t("map.packetLog.hops", { defaultValue: "{{count}} hops", count: hopCount });
                 return (
                   <li key={id}>
                       <button type="button" onClick={() => onAnalyzePacket(data.packetHash)}
-                        aria-label={t("map.packetLog.details", { defaultValue: "Packet details: {{type}} · {{summary}}", type: payload, summary })}
+                        aria-label={summary
+                          ? t("map.packetLog.details", { defaultValue: "Packet details: {{type}} · {{summary}}", type: payload, summary: accessibleContext ? `${accessiblePreview} · ${accessibleContext}` : accessiblePreview })
+                          : `${t("map.packetLog.detailsWithoutPreview", { defaultValue: "Packet details: {{type}}", type: payload })}${accessibleContext ? ` · ${accessibleContext}` : ""}`}
                         className={`block w-full min-w-0 border-l-2 px-2 py-1.5 text-left cursor-pointer hover:bg-text-normal/8 ${index === 0 ? `${variant} border-l-current` : "border-l-transparent"}`}>
                         <span className="flex min-w-0 items-center gap-1 font-mono text-[11px] leading-4">
                           <span className={`max-w-20 truncate rounded-sm border px-1 font-semibold ${variant}`} title={payload}>{payload}</span>
                           <span className="max-w-16 truncate rounded-sm border border-border px-1 text-text-normal" title={route}>{shortRoute}</span>
-                          <span className="shrink-0 text-text-normal" title={hops} aria-label={hops}>{hopCount ?? "—"}h</span>
                           <span className="shrink-0 rounded-sm bg-text-normal/8 px-1 text-text-bright tabular-nums" title={sightings} aria-label={sightings}>×{seenCount}</span>
                           <span className="min-w-0 max-w-10 truncate text-text-normal" title={observation.iata}>{observation.iata}</span>
-                          <time className="ml-auto shrink-0 text-text-normal tabular-nums" dateTime={new Date(observation.heardAt).toISOString()} title={absolute}>{absolute.slice(11)}</time>
+                          <time className="ml-auto shrink-0 text-text-normal tabular-nums" dateTime={new Date(firstHeardAt).toISOString()} title={firstHeard} aria-label={firstHeard}>{absolute.slice(11)}</time>
                         </span>
-                        <span className="mt-0.5 block truncate text-[12px] leading-4 text-text-bright" title={summary}>{summary}</span>
+                        {summary && <span className="mt-0.5 line-clamp-2 whitespace-pre-wrap text-[12px] leading-4 text-text-bright [overflow-wrap:anywhere]" title={summary}>{summary}</span>}
+                        {context && <span className="mt-0.5 block truncate text-[11px] leading-4 text-text-normal" title={context}>{context}</span>}
                       </button>
                   </li>
                 );
@@ -91,7 +110,6 @@ export function LivePacketLogPanel({ entries, status, regionPending = false, onA
             </ol>
           )}
         </div>
-        <p className="border-t border-border-subtle px-3 py-2 text-[10px] text-text-normal">{t("map.packetLog.grouping", { defaultValue: "Newest sightings first · repeats grouped for 30s" })}</p>
       </CollapsibleContent>
     </Collapsible>
   );

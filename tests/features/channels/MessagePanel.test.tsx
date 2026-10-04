@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MessagePanel } from "../../../src/features/channels/MessagePanel";
 import type { ChannelMessage, ChannelSummary } from "../../../src/features/channels/types";
-import i18n from "../../../src/i18n";
+
 
 // Older live WS messages have no id — preserve that compatible runtime shape.
 const restMsg: ChannelMessage = {
@@ -114,10 +114,4 @@ describe("MessagePanel heard badge", () => {
     expect(screen.getByTitle("Heard 1 time")).toBeInTheDocument();
   });
 
-  it("labels the repeat count in French", async () => {
-    await i18n.changeLanguage("fr");
-    mount();
-    expect(await screen.findByTitle("Entendu 3 fois")).toBeInTheDocument();
-    expect(screen.getByTitle("Entendu 1 fois")).toBeInTheDocument();
-  });
 });

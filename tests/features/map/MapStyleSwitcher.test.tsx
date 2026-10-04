@@ -11,8 +11,8 @@ it("identifies the selected style and forwards style selection", () => {
   expect(dark).toHaveAttribute("aria-pressed", "true");
   expect(light).toHaveAttribute("aria-pressed", "false");
   fireEvent.click(light);
-  expect(change).toHaveBeenCalledExactlyOnceWith("light");
-  rerender(<MapStyleSwitcher styleId="light" onChange={change} />);
+  expect(change).toHaveBeenCalledExactlyOnceWith("positron");
+  rerender(<MapStyleSwitcher styleId="positron" onChange={change} />);
   expect(dark).toHaveAttribute("aria-pressed", "false");
   expect(light).toHaveAttribute("aria-pressed", "true");
 });

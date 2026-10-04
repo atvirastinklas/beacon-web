@@ -592,11 +592,9 @@
         "waitingHint": "Listening for packet observations in the selected region.",
         "sightings_one": "{{count}} sighting in this feed",
         "sightings_other": "{{count}} sightings in this feed",
-        "unknownHops": "Hop count unavailable",
-        "hops_one": "{{count}} hop",
-        "hops_other": "{{count}} hops",
+        "firstHeard": "First heard",
         "details": "Packet details: {{type}} · {{summary}}",
-        "grouping": "Newest sightings first · repeats grouped for 30s"
+        "detailsWithoutPreview": "Packet details: {{type}}"
       },
       "loadFailed": "Map failed to load",
       "loadFailedHint": "Check your connection and reload",

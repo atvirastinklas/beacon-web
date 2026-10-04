@@ -1,7 +1,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { PacketEndpoints } from "../../../src/features/packets/PacketEndpoints";
-import i18n from "../../../src/i18n";
+
 import type { LatestObserver, PacketSummary } from "../../../src/types/api";
 
 const pkt = (observer?: LatestObserver): PacketSummary => ({
@@ -78,20 +78,7 @@ describe("PacketEndpoints", () => {
     expect(chip).toHaveAttribute("title", "No path resolution available");
   });
 
-  it("translates the no-resolution title to French", async () => {
-    await act(() => i18n.changeLanguage("fr"));
-    render(<PacketEndpoints packet={pkt(obs({
-      resolvedSource: { confidence: "none", nodes: [] },
-    }))} />);
-    expect(screen.getByText("?")).toHaveAttribute("title", "Aucune résolution de chemin disponible");
-    await act(() => i18n.changeLanguage("en"));
-  });
 
-  it("shows a missing endpoint as n/d in French", async () => {
-    await act(() => i18n.changeLanguage("fr"));
-    render(<PacketEndpoints packet={pkt()} />);
-    expect(screen.getByText("n/d")).toBeInTheDocument();
-  });
 
   it("shows an advert as its single source node with no destination", () => {
     const advert = { ...pkt(obs({ resolvedSource: { confidence: "high", nodes: [{ id: "s", publicKey: "aa", name: "Fuzz HQ" }] } })), payloadType: 4, summary: "Fuzz HQ" };

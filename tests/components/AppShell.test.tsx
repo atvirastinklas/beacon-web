@@ -42,21 +42,21 @@ beforeEach(() => {
 });
 
 describe("AppShell", () => {
-  it("switches navigation to French while preserving tab identifiers and the active view", async () => {
+  it("switches navigation to Lithuanian while preserving tab identifiers and the active view", async () => {
     vi.mocked(getIatas).mockResolvedValue([]);
     const onTabChange = vi.fn();
     renderShell(onTabChange);
 
     fireEvent.click(screen.getByRole("button", { name: "Language: English" }));
-    fireEvent.click(screen.getByRole("button", { name: "Français", exact: true }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Langue: Français" })).toHaveAttribute("aria-expanded", "false"));
-    expect(screen.getAllByRole("tab", { name: "Paquets" })[0]).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("EN DIRECT")).toBeInTheDocument();
-    expect(document.documentElement.lang).toBe("fr");
-    expect(localStorage.getItem("beacon-language")).toBe("fr");
+    fireEvent.click(screen.getByRole("button", { name: "Lietuvių", exact: true }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Kalba: Lietuvių" })).toHaveAttribute("aria-expanded", "false"));
+    expect(screen.getAllByRole("tab", { name: "Paketai" })[0]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("TIESIOGIAI")).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("lt");
+    expect(localStorage.getItem("beacon-language")).toBe("lt");
     expect(onTabChange).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getAllByRole("tab", { name: "Carte" })[0]!);
+    fireEvent.click(screen.getAllByRole("tab", { name: "Žemėlapis" })[0]!);
     expect(onTabChange).toHaveBeenCalledWith("Map");
   });
 
@@ -106,22 +106,6 @@ describe("region picker filter", () => {
     vi.mocked(getIatas).mockResolvedValue(IATAS);
     vi.mocked(getRegions).mockResolvedValue(REGIONS.map(({ id, slug, name }) => ({ id, slug, name })));
     vi.mocked(getRegion).mockImplementation(async (id: number) => REGIONS.find((r) => r.id === id)!);
-  });
-
-  it("searches the translated all-regions label and retains raw IATA values", async () => {
-    renderShell();
-    fireEvent.click(screen.getByRole("button", { name: "Language: English" }));
-    fireEvent.click(screen.getByRole("button", { name: "Français", exact: true }));
-    fireEvent.click(await screen.findByRole("button", { name: /Région/ }));
-    await screen.findByText("Western Canada");
-    const input = screen.getByRole("textbox", { name: "Rechercher une région ou un code de zone…" });
-    fireEvent.change(input, { target: { value: "toutes" } });
-    expect(screen.getByText("Toutes les régions")).toBeInTheDocument();
-
-    fireEvent.change(input, { target: { value: "yvr" } });
-    expect(screen.queryByText("Toutes les régions")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Vancouver International/ }));
-    expect(screen.getByRole("button", { name: /Région\s*YVR/ })).toBeInTheDocument();
   });
 
   it("focuses the filter input when the picker opens", async () => {
@@ -321,8 +305,8 @@ describe("AppShell on a phone", () => {
     expect(screen.queryByRole("link", { name: "GitHub" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("link", { name: "GitHub" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Français" }));
-    await waitFor(() => expect(document.documentElement.lang).toBe("fr"));
+    fireEvent.click(screen.getByRole("button", { name: "Lietuvių" }));
+    await waitFor(() => expect(document.documentElement.lang).toBe("lt"));
     await act(() => i18n.changeLanguage("en"));
   });
 });

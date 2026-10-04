@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { WsManager } from "../../api/ws-manager";
 import type { WsPacketObservation } from "../../types/ws";
+import type { ChannelMessage } from "../channels/types";
 
 export const LIVE_PACKET_LOG_CAP = 100;
 export const LIVE_PACKET_LOG_GROUP_MS = 30_000;
@@ -9,8 +10,10 @@ export interface LivePacketLogEntry {
   id: number;
   data: WsPacketObservation["data"];
   seenCount: number;
+  firstHeardAt: number; // epoch time of this row's first accepted observation; repeats never change it
   firstReceivedAt: number; // monotonic arrival time; anchors the fixed grouping window
   lastReceivedAt: number;
+  message?: { content: string; senderName: string };
 }
 
 // Like a compact packet feed, group repeated sightings of one hash within a fixed arrival window.
@@ -22,6 +25,7 @@ class LivePacketLogStore {
   private sequence = 0;
   private frame: number | null = null;
   private listeners = new Set<() => void>();
+  private messages = new Map<string, { receivedAt: number; message: NonNullable<LivePacketLogEntry["message"]> }>();
 
   getSnapshot = () => this.entries;
 
@@ -32,13 +36,49 @@ class LivePacketLogStore {
 
   push(data: WsPacketObservation["data"]) {
     const now = performance.now();
-    const index = this.pending.findIndex(entry => entry.data.packetHash === data.packetHash
+    this.pruneMessages(now);
+    const hash = data.packetHash.toLowerCase();
+    const index = this.pending.findIndex(entry => entry.data.packetHash.toLowerCase() === hash
       && now - entry.firstReceivedAt < LIVE_PACKET_LOG_GROUP_MS);
     const previous = this.pending[index];
     const entry: LivePacketLogEntry = previous
       ? { ...previous, data, seenCount: previous.seenCount + 1, lastReceivedAt: now }
-      : { id: ++this.sequence, data, seenCount: 1, firstReceivedAt: now, lastReceivedAt: now };
-    this.pending = [entry, ...this.pending.filter((_, i) => i !== index)].slice(0, LIVE_PACKET_LOG_CAP);
+      : { id: ++this.sequence, data, seenCount: 1, firstHeardAt: data.observation.heardAt, firstReceivedAt: now, lastReceivedAt: now };
+    const message = this.messages.get(hash)?.message;
+    if (message) entry.message = message;
+    this.pending = [entry, ...this.pending.filter((_, i) => i !== index)]
+      .sort((a, b) => b.firstHeardAt - a.firstHeardAt || b.id - a.id)
+      .slice(0, LIVE_PACKET_LOG_CAP);
+    this.publishPending();
+  }
+
+  // The channel stream supplies decoded text but no IATA. Only an accepted observation can
+  // introduce a visible row; matching an immutable packet hash enriches that row, never activity.
+  enrich(data: ChannelMessage) {
+    const now = performance.now();
+    this.pruneMessages(now);
+    const hash = data.packetHash.toLowerCase();
+    const message = { content: data.content, senderName: data.senderName };
+    this.messages.delete(hash);
+    this.messages.set(hash, { receivedAt: now, message });
+    if (this.messages.size > LIVE_PACKET_LOG_CAP) this.messages.delete(this.messages.keys().next().value!);
+    let changed = false;
+    this.pending = this.pending.map(entry => {
+      if (entry.data.packetHash.toLowerCase() !== hash ||
+          (entry.message?.content === message.content && entry.message?.senderName === message.senderName)) return entry;
+      changed = true;
+      return { ...entry, message };
+    });
+    if (changed) this.publishPending();
+  }
+
+  private pruneMessages(now: number) {
+    for (const [hash, cached] of this.messages) {
+      if (now - cached.receivedAt >= LIVE_PACKET_LOG_GROUP_MS) this.messages.delete(hash);
+    }
+  }
+
+  private publishPending() {
     if (this.frame !== null) return;
     this.frame = requestAnimationFrame(() => {
       this.frame = null;
@@ -51,6 +91,7 @@ class LivePacketLogStore {
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
     this.pending = this.entries;
+    this.messages.clear();
   }
 }
 
@@ -80,9 +121,13 @@ export function useLivePacketLog(
       if (!active || (session.iatas && !session.iatas.has(data.observation.iata))) return;
       session.store.push(data);
     });
+    const unsubscribeMessages = session.manager.onChannelMessage(data => {
+      if (active) session.store.enrich(data);
+    });
     return () => {
       active = false;
       unsubscribe();
+      unsubscribeMessages();
       session.store.cancelPending();
     };
   }, [session]);

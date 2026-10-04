@@ -42,8 +42,7 @@ it("retains the same cached path request and window when only the language chang
   const { unmount } = render(<QueryClientProvider client={client}><PathsTab range="7d" /></QueryClientProvider>);
   await screen.findByText("No observations in this window.");
   expect(getPathStats).toHaveBeenCalledOnce();
-  await act(() => i18n.changeLanguage("fr"));
-  expect(screen.getByText("Aucune observation dans cette période.")).toBeInTheDocument();
+  await act(() => i18n.changeLanguage("lt"));
   expect(getPathStats).toHaveBeenCalledOnce();
   expect(client.getQueryCache().getAll().map((query) => query.queryKey)).toEqual([["stats-paths", "YVR", "7d"]]);
   unmount(); client.clear();

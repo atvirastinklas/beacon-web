@@ -10,11 +10,107 @@ function LivePacketLogPanel(props: Omit<ComponentProps<typeof PacketPanel>, "onA
   return <PacketPanel {...props} onAnalyzePacket={analyze} />;
 }
 function entry(id: number, summary = `Observation ${id}`): LivePacketLogEntry {
-  return { id, seenCount: 1, firstReceivedAt: id, lastReceivedAt: id, data: { packetHash: String(id).padStart(64, "0"), packet: { payloadType: 4, payloadTypeName: "Advert", routeType: 1, routeTypeName: "Flood", isFirstObservation: true, observationCount: 1, summary }, observation: { observerId: "observer", observerName: "Observer name", iata: "VNO", heardAt: 1_700_000_000_000 + id, rssi: -70, snr: 8, sourceBroker: "test", pathLength: { hopCount: 2, hashSize: 1, raw: "02" } } } };
+  return { id, seenCount: 1, firstHeardAt: 1_700_000_000_000 + id, firstReceivedAt: id, lastReceivedAt: id, data: { packetHash: String(id).padStart(64, "0"), packet: { payloadType: 4, payloadTypeName: "Advert", routeType: 1, routeTypeName: "Flood", isFirstObservation: true, observationCount: 1, summary }, observation: { observerId: "observer", observerName: "Observer name", iata: "VNO", heardAt: 1_700_000_000_000 + id, rssi: -70, snr: 8, sourceBroker: "test", pathLength: { hopCount: 2, hashSize: 1, raw: "02" } } } };
 }
 beforeEach(() => analyze.mockClear());
 
 describe("desktop Live packets panel", () => {
+  it("renders an anonymous packet without preview as metadata only, retaining opaque hash solely for activation", () => {
+    const packet = entry(1);
+    packet.data.packet.payloadType = 7;
+    packet.data.packet.summary = undefined;
+    packet.data.packetHash = "f1e2d3c4".repeat(8);
+    const { rerender } = render(<LivePacketLogPanel entries={[packet]} status="connected" />);
+    const row = screen.getByRole("button", { name: "Packet details: ANON_REQ", exact: true });
+    expect(row.querySelectorAll(":scope > span")).toHaveLength(1);
+    expect(row.textContent).not.toMatch(/f1e2d3c4/i);
+    expect(row.outerHTML).not.toMatch(/f1e2d3c4/i);
+    row.focus();
+    fireEvent.click(row);
+    expect(analyze).toHaveBeenCalledExactlyOnceWith(packet.data.packetHash);
+    // A genuinely packet-derived hexadecimal summary is still useful content, not a hash fallback.
+    packet.data.packet.summary = "DEADBEEF";
+    rerender(<LivePacketLogPanel entries={[{ ...packet }]} status="connected" />);
+    expect(screen.getByText("DEADBEEF")).toBeVisible();
+  });
+  it("does not repeat a route already shown by the preview, but preserves a sender name mentioned within distinct content", () => {
+    const packet = entry(1, "Alice → Destination");
+    packet.data.observation.resolvedSource = { confidence: "high", nodes: [{ id: "a", publicKey: "a", name: "Alice" }] };
+    packet.data.observation.resolvedDestination = { confidence: "high", nodes: [{ id: "b", publicKey: "b", name: "Destination" }] };
+    const { rerender } = render(<LivePacketLogPanel entries={[packet]} status="connected" />);
+    const row = screen.getAllByRole("listitem")[0].querySelector("button")!;
+    expect(row.querySelectorAll(".mt-0\\.5")).toHaveLength(1);
+    packet.message = { content: "Alice says hello", senderName: "Alice" };
+    rerender(<LivePacketLogPanel entries={[{ ...packet }]} status="connected" />);
+    expect(screen.getByText("Alice says hello")).toBeVisible();
+    expect(screen.getByText("Alice · → Destination")).toBeVisible();
+  });
+  it.each([
+    { payloadType: 1, name: "LT-VM Naujamiestis 769F", summary: "LT-VM Naujamiestis 769F" },
+    { payloadType: 8, name: "LT-LA G R177E3🥾", summary: "  LT-LA G  R177E3🥾  " },
+    { payloadType: 8, name: "Fallback node", summary: undefined },
+  ])("does not repeat a name-only preview for payload $payloadType", ({ payloadType, name, summary }) => {
+    const packet = entry(1);
+    packet.data.packet.payloadType = payloadType;
+    packet.data.packet.summary = summary;
+    packet.data.observation.resolvedSource = { confidence: "high", nodes: [{ id: "source", publicKey: "a", name }] };
+    render(<LivePacketLogPanel entries={[packet]} status="connected" />);
+    const row = screen.getAllByRole("listitem")[0].querySelector("button")!;
+    expect(row.querySelectorAll(".mt-0\\.5")).toHaveLength(1);
+    expect(row.querySelector(".line-clamp-2")!.textContent!.replace(/\s+/g, " ").trim()).toBe(name);
+    expect(row.textContent!.replace(/\s+/g, " ").split(name)).toHaveLength(2);
+    expect(screen.getByRole("region").querySelector(":scope > [data-state] > p")).toBeNull();
+  });
+  it("keeps first-heard timestamps when later observations update a row in place", () => {
+    const earlier = entry(1);
+    const later = entry(2);
+    const { rerender } = render(<LivePacketLogPanel entries={[later, earlier]} status="connected" />);
+    const firstTimes = screen.getAllByRole("listitem").map(row => row.querySelector("time")!.getAttribute("datetime"));
+    const title = screen.getAllByRole("listitem")[1].querySelector("time")!.title;
+    earlier.data.observation.heardAt += 60_000;
+    earlier.seenCount = 2;
+    rerender(<LivePacketLogPanel entries={[later, { ...earlier }]} status="connected" />);
+    expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("Observation 1");
+    expect(screen.getAllByRole("listitem").map(row => row.querySelector("time")!.getAttribute("datetime"))).toEqual(firstTimes);
+    expect(title).toMatch(/^First heard:/);
+    expect(screen.getAllByRole("listitem")[1].querySelector("time")).toHaveAttribute("aria-label", title);
+    expect(screen.getByLabelText("2 sightings in this feed")).toBeVisible();
+  });
+  it("shows decoded group content and embedded sender separately, keeping known routes secondary and HTML literal", () => {
+    const packet = entry(1, "Server summary should not hide decoded content");
+    packet.data.packet.payloadType = 5;
+    packet.data.observation.resolvedSource = { confidence: "high", nodes: [{ id: "source", name: "Source node", publicKey: "a" }] };
+    packet.data.observation.resolvedDestination = { confidence: "high", nodes: [{ id: "dest", name: "Destination node", publicKey: "b" }] };
+    packet.message = { content: "<img src=x>\n" + "Long decoded message ".repeat(20), senderName: "Alice" };
+    const { container } = render(<LivePacketLogPanel entries={[packet]} status="connected" />);
+    const row = screen.getByRole("button", { name: /Packet details: GRP_TXT · <img src=x>.*Sender: Alice · Source node → Destination node/s });
+    const preview = row.querySelector(".line-clamp-2")!;
+    expect(preview.textContent).toBe(packet.message.content);
+    expect(preview).toHaveAttribute("title", packet.message.content);
+    expect(row).toHaveTextContent("Alice · Source node → Destination node");
+    expect(row).not.toHaveTextContent("Sender:");
+    expect(row).not.toHaveTextContent("Observer name");
+    expect(container.querySelector("img")).toBeNull();
+    expect(row.querySelector("a, button")).toBeNull();
+    fireEvent.click(row);
+    expect(analyze).toHaveBeenCalledExactlyOnceWith(packet.data.packetHash);
+  });
+
+  it("uses available summaries for other payloads before endpoints, and never claims an observer or ambiguous source as sender", () => {
+    const packet = entry(1, "Advert name");
+    packet.data.observation.resolvedSource = { confidence: "high", nodes: [{ id: "abcdef123456", name: " ", publicKey: "a" }] };
+    packet.data.observation.resolvedDestination = { confidence: "high", nodes: [{ id: "dest", name: "Destination", publicKey: "b" }] };
+    const { rerender } = render(<LivePacketLogPanel entries={[packet]} status="connected" />);
+    expect(screen.getByText("Advert name")).toBeVisible();
+    expect(screen.getByText("ABCDEF12 · → Destination")).toBeVisible();
+    packet.message = { content: " ", senderName: " " };
+    packet.data.observation.resolvedSource = { confidence: "ambiguous", nodes: [{ id: "candidate", name: "Candidate", publicKey: "a" }] };
+    rerender(<LivePacketLogPanel entries={[{ ...packet }]} status="connected" />);
+    expect(screen.getByText("Advert name")).toBeVisible();
+    expect(screen.queryByText(/Sender:/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Candidate")).not.toBeInTheDocument();
+    expect(screen.getByText("Destination")).toBeVisible();
+  });
   it("is expanded by default with a visible waiting state and accessible outer collapse control", () => {
     render(<LivePacketLogPanel entries={[]} status="connected" />);
     const region = screen.getByRole("region", { name: "Live packets" });
@@ -47,7 +143,8 @@ describe("desktop Live packets panel", () => {
     expect(rows[0]).toHaveTextContent("VNO");
     expect(rows[0]).toHaveTextContent("ADVERT");
     expect(rows[0]).toHaveTextContent("FLOOD");
-    expect(rows[0]).toHaveTextContent("2h");
+    expect(rows[0]).not.toHaveTextContent("2h");
+    expect(rows[0].querySelector('[aria-label="2 hops"], [title="2 hops"]')).toBeNull();
     fireEvent.click(within(rows[0]).getByRole("button", { name: /Packet details:/ }));
     expect(analyze).toHaveBeenCalledExactlyOnceWith(entry(3).data.packetHash);
     expect(rows[0].querySelector("dl, [data-state]")).toBeNull();
@@ -70,7 +167,8 @@ describe("desktop Live packets panel", () => {
     const { rerender, container } = render(<LivePacketLogPanel entries={[]} status="connected" regionPending />);
     expect(screen.getByText("Loading region…")).toBeVisible();
     rerender(<LivePacketLogPanel entries={[first]} status="connected" />);
-    expect(screen.getByText(`${unsafeName} → Destination`)).toBeVisible();
+    expect(screen.getByText(`${unsafeName} · → Destination`)).toBeVisible();
+    expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeVisible();
     expect(container.querySelector("script, img")).toBeNull();
     first.data.observation.resolvedSource = { confidence: "ambiguous", nodes: [{ id: "source", name: "Ambiguous candidate", publicKey: "a" }] };
     first.data.observation.resolvedDestination = null;
@@ -113,13 +211,22 @@ describe("desktop Live packets panel", () => {
     first.seenCount = 2;
     rerender(<LivePacketLogPanel entries={[second, { ...first }]} status="connected" />);
     expect(screen.getByLabelText("2 sightings in this feed")).toBeVisible();
-    expect(screen.getByLabelText("Hop count unavailable")).toHaveTextContent("—h");
+    expect(screen.queryByLabelText("Hop count unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByText("—h")).not.toBeInTheDocument();
+    expect(screen.queryByText("2h")).not.toBeInTheDocument();
+    expect(first.data.observation.pathLength?.hopCount).toBe(2);
+    const missingPathRow = screen.getByRole("button", { name: "Packet details: ADVERT · Observation 2" });
+    expect(missingPathRow).toHaveTextContent("ADVERT");
+    expect(missingPathRow).toHaveTextContent("FLOOD");
+    expect(missingPathRow).toHaveTextContent("VNO");
+    fireEvent.click(missingPathRow);
+    expect(analyze).toHaveBeenLastCalledWith(second.data.packetHash);
     rerender(<LivePacketLogPanel entries={[]} status="connected" />);
     const fresh = entry(1, "New session packet");
     fresh.data.packetHash = "fresh-hash";
     rerender(<LivePacketLogPanel entries={[fresh]} status="connected" />);
     fireEvent.click(screen.getByRole("button", { name: "Packet details: ADVERT · New session packet" }));
-    expect(analyze.mock.calls).toEqual([[first.data.packetHash], ["fresh-hash"]]);
+    expect(analyze.mock.calls).toEqual([[first.data.packetHash], [second.data.packetHash], ["fresh-hash"]]);
     expect(screen.queryByRole("button", { name: "Close packet details" })).not.toBeInTheDocument();
   });
 });

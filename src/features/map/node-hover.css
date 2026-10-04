@@ -1,0 +1,5 @@
+.node-hover-popup { pointer-events: none; }
+.node-hover-popup .maplibregl-popup-content { padding: 9px 12px; }
+[data-dark="false"] .node-hover-popup .maplibregl-popup-content { color: #18181b; }
+.node-hover-name { font-size: 12px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-wrap; }
+.node-hover-role { margin-top: 3px; font-size: 11px; line-height: 1.4; opacity: 0.8; }

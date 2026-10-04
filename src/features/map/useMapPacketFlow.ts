@@ -1,17 +1,24 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { Map as MapLibreMap, GeoJSONSource, CircleLayerSpecification, LineLayerSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, Point, LineString } from "geojson";
 import type { WsManager } from "../../api/ws-manager";
-import { packetChain, resolvedPathNodes, posAtHop, trailCoords } from "./packet-flow";
+import { packetChain, locatedHopNode, livePathStops, livePathCoordinates, posAtHop, trailCoords } from "./packet-flow";
+import type { NodeFeatureProps } from "./node-geojson";
+import { flowOpacity, liveAnchorFeatures, visibleAnchorLocations, type LiveFlowAnchor } from "./live-path-anchors";
+import { resolvedPathAnchorLayer } from "./live-path-anchor-layer";
+import { LIVE_GHOST_RADIUS, LIVE_GHOST_STROKE_WIDTH } from "./live-marker-hit";
 import {
   PACKET_FLOW_TRAIL_SOURCE_ID,
   PACKET_FLOW_TRAIL_LAYER_ID,
   PACKET_FLOW_DOT_SOURCE_ID,
   PACKET_FLOW_DOT_HALO_LAYER_ID,
   PACKET_FLOW_DOT_LAYER_ID,
+  PACKET_FLOW_GHOST_SOURCE_ID,
+  PACKET_FLOW_GHOST_LAYER_ID,
+  PACKET_FLOW_ANCHOR_SOURCE_ID,
+  PACKET_FLOW_ANCHOR_LAYER_ID,
   PACKET_FLOW_COLOR,
   PACKET_FLOW_HOP_MS,
-  PACKET_FLOW_TRAIL_FADE_MS,
   PACKET_FLOW_MAX,
   NODES_SOURCE_ID,
 } from "./types";
@@ -22,14 +29,14 @@ const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
 interface Flow {
   coords: [number, number][];
   ids: (string | null)[];
+  anchors: LiveFlowAnchor[];
   start: number;
   lastNode: number;
 }
 
-// Live mode (MeshMapper LiveViz style): dim every node, then per observed packet shoot an orange dot
-// along its real hop path with a fading dashed trail, flashing each node to full opacity as the dot
-// crosses it. Enabling it opts the WS connection into resolvedPath data. Geometry is pure
-// (packet-flow.ts); here we own the maplibre layers, the dimming, the rAF loop, and the subscription.
+// Live mode: per observed packet shoot an orange dot along its known/inferred hop path with a fading
+// dashed trail, highlighting only real nodes. Enabling it opts the WS connection into resolvedPath
+// data. Geometry is pure (packet-flow.ts); here we own the packet layers, rAF loop and subscription.
 export function useMapPacketFlow(
   mapRef: React.RefObject<MapLibreMap | null>,
   isReady: boolean,
@@ -37,10 +44,26 @@ export function useMapPacketFlow(
   wsManager: WsManager,
   themeKey: string,
   resetKey: string,
+  visibleNodes: FeatureCollection<Point, NodeFeatureProps>,
 ) {
   const flowsRef = useRef<Flow[]>([]);
   const litRef = useRef<Set<string>>(new Set()); // node ids currently lit (feature-state glow set)
   const rafRef = useRef<number | null>(null);
+  const visibleLocations = useMemo(() => visibleAnchorLocations(visibleNodes), [visibleNodes]);
+  const visibleLocationsRef = useRef(visibleLocations);
+  const snapshotsRef = useRef<Record<string, FeatureCollection>>({});
+
+  const updateAnchors = useCallback((now: number) => {
+    const data = liveAnchorFeatures(flowsRef.current, visibleLocationsRef.current, now);
+    snapshotsRef.current[PACKET_FLOW_ANCHOR_SOURCE_ID] = data;
+    (mapRef.current?.getSource(PACKET_FLOW_ANCHOR_SOURCE_ID) as GeoJSONSource | undefined)?.setData(data);
+  }, [mapRef]);
+
+  // Pagination and filters change representation, not the observations' animation clocks.
+  useEffect(() => {
+    visibleLocationsRef.current = visibleLocations;
+    if (isReady) updateAnchors(performance.now());
+  }, [visibleLocations, isReady, updateAnchors]);
 
   const clearFlows = useCallback((map: MapLibreMap | null) => {
     if (rafRef.current != null) {
@@ -48,11 +71,14 @@ export function useMapPacketFlow(
       rafRef.current = null;
     }
     flowsRef.current = [];
+    snapshotsRef.current = {};
     // guard the whole block: on a not-yet-ready or torn-down map, getSource/setFeatureState throw
     try {
       for (const id of litRef.current) map?.removeFeatureState({ source: NODES_SOURCE_ID, id }, "glow");
       (map?.getSource(PACKET_FLOW_TRAIL_SOURCE_ID) as GeoJSONSource | undefined)?.setData(EMPTY_FC);
       (map?.getSource(PACKET_FLOW_DOT_SOURCE_ID) as GeoJSONSource | undefined)?.setData(EMPTY_FC);
+      (map?.getSource(PACKET_FLOW_GHOST_SOURCE_ID) as GeoJSONSource | undefined)?.setData(EMPTY_FC);
+      (map?.getSource(PACKET_FLOW_ANCHOR_SOURCE_ID) as GeoJSONSource | undefined)?.setData(EMPTY_FC);
     } catch {
       // map style not ready / already removed
     }
@@ -67,6 +93,7 @@ export function useMapPacketFlow(
 
       const dots: Feature<Point>[] = [];
       const lines: Feature<LineString>[] = [];
+      const ghosts: Feature<Point>[] = [];
       const glowByNode = new Map<string, number>(); // node id -> glow this frame (max across packets)
 
       for (let i = flowsRef.current.length - 1; i >= 0; i--) {
@@ -77,7 +104,7 @@ export function useMapPacketFlow(
         if (node > p.lastNode) p.lastNode = node;
         const headT = Math.min(t, nSeg);
         // full while the dot is travelling, then eases out with the trail after it reaches the end
-        const fade = t > nSeg ? Math.max(0, 1 - (now - (p.start + nSeg * PACKET_FLOW_HOP_MS)) / PACKET_FLOW_TRAIL_FADE_MS) : 1;
+        const fade = flowOpacity(p.start, nSeg, now);
 
         const coords = trailCoords(p.coords, headT);
         if (coords.length >= 2) {
@@ -88,6 +115,11 @@ export function useMapPacketFlow(
         }
         // light every node the dot has reached; they hold at full while it travels, then fade with the trail
         if (fade > 0) {
+          for (let k = 0; k < p.coords.length; k++) {
+            if (p.ids[k] === null) {
+              ghosts.push({ type: "Feature", properties: { a: fade, inferred: true }, geometry: { type: "Point", coordinates: p.coords[k]! } });
+            }
+          }
           for (let k = 0; k <= p.lastNode; k++) {
             const id = p.ids[k];
             if (id != null) glowByNode.set(id, Math.max(glowByNode.get(id) ?? 0, fade));
@@ -105,14 +137,18 @@ export function useMapPacketFlow(
       } catch { /* node gone */ }
       litRef.current = new Set(glowByNode.keys());
 
-      (map?.getSource(PACKET_FLOW_TRAIL_SOURCE_ID) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: lines });
-      (map?.getSource(PACKET_FLOW_DOT_SOURCE_ID) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: dots });
+      for (const [source, features] of [[PACKET_FLOW_TRAIL_SOURCE_ID, lines], [PACKET_FLOW_DOT_SOURCE_ID, dots], [PACKET_FLOW_GHOST_SOURCE_ID, ghosts]] as const) {
+        const data: FeatureCollection = { type: "FeatureCollection", features: [...features] };
+        snapshotsRef.current[source] = data;
+        (map?.getSource(source) as GeoJSONSource | undefined)?.setData(data);
+      }
+      updateAnchors(now);
 
       const busy = flowsRef.current.length > 0 || litRef.current.size > 0;
       rafRef.current = busy ? requestAnimationFrame(frame) : null;
     }
     rafRef.current = requestAnimationFrame(frame);
-  }, [mapRef]);
+  }, [mapRef, updateAnchors]);
 
   // build the trail + dot layers (re-add after a style switch); the dot is orange with a white stroke
   // and a dark halo behind it, the trail a dashed line whose opacity is data-driven
@@ -121,7 +157,10 @@ export function useMapPacketFlow(
     if (!map || !isReady) return;
 
     if (!map.getSource(PACKET_FLOW_TRAIL_SOURCE_ID)) {
-      map.addSource(PACKET_FLOW_TRAIL_SOURCE_ID, { type: "geojson", data: EMPTY_FC });
+      map.addSource(PACKET_FLOW_TRAIL_SOURCE_ID, { type: "geojson", data: snapshotsRef.current[PACKET_FLOW_TRAIL_SOURCE_ID] ?? EMPTY_FC });
+    }
+    if (!map.getSource(PACKET_FLOW_GHOST_SOURCE_ID)) {
+      map.addSource(PACKET_FLOW_GHOST_SOURCE_ID, { type: "geojson", data: snapshotsRef.current[PACKET_FLOW_GHOST_SOURCE_ID] ?? EMPTY_FC });
     }
     if (!map.getLayer(PACKET_FLOW_TRAIL_LAYER_ID)) {
       map.addLayer({
@@ -132,8 +171,32 @@ export function useMapPacketFlow(
         paint: { "line-color": PACKET_FLOW_COLOR, "line-width": 2.5, "line-dasharray": [2, 2], "line-opacity": ["get", "a"] },
       } as LineLayerSpecification);
     }
+    if (!map.getLayer(PACKET_FLOW_GHOST_LAYER_ID)) {
+      map.addLayer({
+        id: PACKET_FLOW_GHOST_LAYER_ID,
+        type: "circle",
+        source: PACKET_FLOW_GHOST_SOURCE_ID,
+        paint: {
+          "circle-radius": LIVE_GHOST_RADIUS,
+          "circle-pitch-alignment": "viewport",
+          "circle-pitch-scale": "viewport",
+          "circle-opacity": 0,
+          // Hollow neutral rings denote inferred positions, never a real node role.
+          // This midtone contrasts with both light and dark basemaps.
+          "circle-stroke-color": "#7C8798",
+          "circle-stroke-width": LIVE_GHOST_STROKE_WIDTH,
+          "circle-stroke-opacity": ["get", "a"],
+        },
+      } satisfies CircleLayerSpecification, map.getLayer(PACKET_FLOW_DOT_HALO_LAYER_ID) ? PACKET_FLOW_DOT_HALO_LAYER_ID : undefined);
+    }
+    if (!map.getSource(PACKET_FLOW_ANCHOR_SOURCE_ID)) {
+      map.addSource(PACKET_FLOW_ANCHOR_SOURCE_ID, { type: "geojson", data: snapshotsRef.current[PACKET_FLOW_ANCHOR_SOURCE_ID] ?? EMPTY_FC });
+    }
+    if (!map.getLayer(PACKET_FLOW_ANCHOR_LAYER_ID)) {
+      map.addLayer(resolvedPathAnchorLayer(), map.getLayer(PACKET_FLOW_DOT_HALO_LAYER_ID) ? PACKET_FLOW_DOT_HALO_LAYER_ID : undefined);
+    }
     if (!map.getSource(PACKET_FLOW_DOT_SOURCE_ID)) {
-      map.addSource(PACKET_FLOW_DOT_SOURCE_ID, { type: "geojson", data: EMPTY_FC });
+      map.addSource(PACKET_FLOW_DOT_SOURCE_ID, { type: "geojson", data: snapshotsRef.current[PACKET_FLOW_DOT_SOURCE_ID] ?? EMPTY_FC });
     }
     if (!map.getLayer(PACKET_FLOW_DOT_HALO_LAYER_ID)) {
       map.addLayer({
@@ -165,8 +228,8 @@ export function useMapPacketFlow(
     return () => wsManager.setResolvePath(false);
   }, [enabled, wsManager]);
 
-  // Base-node dimming (fade all, lift the flashing node) is owned by useMapNodes so live mode and
-  // selection focus share one opacity owner; here we only feed it the per-node glow feature-state.
+  // Node styling and foreground activity are owned by useMapNodes; here we only feed it the
+  // per-node glow feature-state so idle dots remain visible independently of packet activity.
 
   // launch a flow per observed packet; tear the animation down when disabled
   useEffect(() => {
@@ -177,15 +240,20 @@ export function useMapPacketFlow(
       // resolvedPath is opt-in and the toggle above lands a beat after connect, but the endpoints
       // always ship — bail rather than animate a bare source→destination hop that never happened.
       if (!obs?.resolvedPath) return;
-      const nodes = resolvedPathNodes(packetChain(obs.resolvedSource, obs.resolvedPath, obs.resolvedDestination));
-      if (nodes.length < 2) return; // need at least two located hops to animate a path
+      const chain = packetChain(obs.resolvedSource, obs.resolvedPath, obs.resolvedDestination);
+      const stops = livePathStops(chain);
+      if (stops.length < 2) return; // need two located anchors; unknown ends are never extrapolated
+      const coords = livePathCoordinates(stops);
+      const names = new Map(chain.map(locatedHopNode).filter(node => node !== undefined).map(node => [node.id, node.name]));
       while (flowsRef.current.length >= PACKET_FLOW_MAX) flowsRef.current.shift();
       flowsRef.current.push({
-        coords: nodes.map((n) => [n.lng, n.lat] as [number, number]),
-        ids: nodes.map((n) => n.id),
+        coords,
+        ids: stops.map(stop => stop.id),
+        anchors: stops.flatMap((stop, index) => stop.id === null ? [] : [{ nodeId: stop.id, name: names.get(stop.id), coordinates: coords[index]! }]),
         start: performance.now(),
         lastNode: -1,
       });
+      updateAnchors(performance.now());
       startLoop();
     });
 
@@ -193,7 +261,7 @@ export function useMapPacketFlow(
       unsub();
       clearFlows(map);
     };
-  }, [enabled, wsManager, mapRef, startLoop, clearFlows]);
+  }, [enabled, wsManager, mapRef, startLoop, clearFlows, updateAnchors]);
 
   // clear on region change (paths came from the old dataset)
   useEffect(() => {
@@ -207,10 +275,10 @@ export function useMapPacketFlow(
       clearFlows(map);
       if (!map) return;
       try {
-        for (const id of [PACKET_FLOW_TRAIL_LAYER_ID, PACKET_FLOW_DOT_HALO_LAYER_ID, PACKET_FLOW_DOT_LAYER_ID]) {
+        for (const id of [PACKET_FLOW_TRAIL_LAYER_ID, PACKET_FLOW_GHOST_LAYER_ID, PACKET_FLOW_ANCHOR_LAYER_ID, PACKET_FLOW_DOT_HALO_LAYER_ID, PACKET_FLOW_DOT_LAYER_ID]) {
           if (map.getLayer(id)) map.removeLayer(id);
         }
-        for (const id of [PACKET_FLOW_TRAIL_SOURCE_ID, PACKET_FLOW_DOT_SOURCE_ID]) {
+        for (const id of [PACKET_FLOW_TRAIL_SOURCE_ID, PACKET_FLOW_DOT_SOURCE_ID, PACKET_FLOW_GHOST_SOURCE_ID, PACKET_FLOW_ANCHOR_SOURCE_ID]) {
           if (map.getSource(id)) map.removeSource(id);
         }
       } catch {

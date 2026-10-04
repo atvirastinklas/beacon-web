@@ -11,11 +11,13 @@ interface SegmentedControlProps {
   // wrap = individual rounded pills (flex-wrap); default = a connected bar
   wrap?: boolean;
   className?: string;
+  disabled?: boolean;
+  describedBy?: string;
 }
 
 // Single-select segmented control; active state uses aria-pressed, not color alone.
 
-export function SegmentedControl({ options, value, onChange, ariaLabel, wrap = false, className }: SegmentedControlProps) {
+export function SegmentedControl({ options, value, onChange, ariaLabel, wrap = false, className, disabled = false, describedBy }: SegmentedControlProps) {
   const containerCls = wrap
     ? `flex flex-wrap gap-1 ${className ?? ""}`
     : `flex bg-bg-raised border border-border rounded-sm overflow-hidden ${className ?? ""}`;
@@ -32,16 +34,17 @@ export function SegmentedControl({ options, value, onChange, ariaLabel, wrap = f
         }`;
 
   return (
-    <div role="group" aria-label={ariaLabel} className={containerCls}>
+    <div role="group" aria-label={ariaLabel} aria-describedby={describedBy} className={containerCls}>
       {options.map((o) => {
         const active = o.value === value;
         return (
           <button
             key={o.value}
             type="button"
-            aria-pressed={active}
+          aria-pressed={active}
+          disabled={disabled}
             onClick={() => onChange(o.value)}
-            className={buttonCls(active)}
+          className={`${buttonCls(active)} disabled:cursor-not-allowed disabled:opacity-60`}
           >
             {o.label}
           </button>

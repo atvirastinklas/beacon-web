@@ -19,7 +19,7 @@ import { useMapNodes } from "../../../src/features/map/useMapNodes";
 
 function stubMap(): MapLibreMap {
   const fns = new Map<PropertyKey, unknown>();
-  const canvas = { style: {} as Record<string, string> };
+  const canvas = document.createElement("canvas");
   return new Proxy({} as MapLibreMap, {
     get(_, key) {
       if (key === "getCanvas") return () => canvas;

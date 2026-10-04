@@ -6,6 +6,7 @@ import {
   CLUSTER_ICON_IDS,
   CLUSTER_BUCKETS,
 } from "./types";
+import { LIVE_NODE_RADIUS, LIVE_NODE_STROKE_WIDTH } from "./live-marker-hit";
 
 // Marker icons: per-type SVG + cluster hexagon, recolored and rasterized to maplibre images (unknown
 // type = canvas ring). Async, so provided lazily via the missing-image resolver in useMapNodes; re-colors on theme.
@@ -38,6 +39,15 @@ const NODE_TYPE_COLOR: Record<string, { colorVar: string; fallback: string }> = 
   sensor: { colorVar: "--palette-warn", fallback: "#EAB308" },
 };
 
+// Shared by the normal glyphs, live dots and activity halos: changing mode never changes a type's color.
+export function nodeTypeColor(type: string, styles = getComputedStyle(document.documentElement)): string {
+  const color = NODE_TYPE_COLOR[type] ?? { colorVar: "--palette-text-muted", fallback: "#73737B" };
+  return styles.getPropertyValue(color.colorVar).trim() || color.fallback;
+}
+
+export const liveNodeIconId = (type: string): string => `node-live-${type}`;
+export const LIVE_NODE_ICON_UNKNOWN = liveNodeIconId("unknown");
+
 // Observer is a ROLE pip layered on any type; keep a fixed accent so it reads consistently and
 // contrasts the (theme-tinted) node color.
 const OBSERVER_COLOR = "#c79bff";
@@ -58,6 +68,8 @@ export const SELECTION_RING_ICON_ID = "node-selection-ring";
 export const MAP_ICON_IDS: string[] = [
   ...NODE_TYPE_NAMES.flatMap((t) => [nodeIconId(t), nodeObserverIconId(t)]),
   NODE_ICON_UNKNOWN,
+  ...NODE_TYPE_NAMES.map(liveNodeIconId),
+  LIVE_NODE_ICON_UNKNOWN,
   ...CLUSTER_ICON_IDS,
   SELECTION_RING_ICON_ID,
 ];
@@ -65,6 +77,22 @@ export const MAP_ICON_IDS: string[] = [
 const ICON_SIZE = 24; // logical px for the canvas-drawn ring
 const MARKER_SIZE = 36; // logical px for SVG glyphs incl. glow padding (64 glyph in an 88 padded box)
 const CLUSTER_SIZE = 56; // logical px for the cluster hexagon (72 hex in a 96 padded box)
+
+// A small, solid dot with a contrasting edge. Only antialias headroom, no oversized hit padding.
+function drawLiveDot(color: string, isDark: boolean, scale: number): ImageData {
+  const size = 10 * scale;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, LIVE_NODE_RADIUS * scale, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 2 * LIVE_NODE_STROKE_WIDTH * scale;
+  ctx.strokeStyle = isDark ? "rgba(255,255,255,0.8)" : "rgba(0,0,0,0.75)";
+  ctx.stroke();
+  return ctx.getImageData(0, 0, size, size);
+}
 
 // Cluster color tracks --palette-primary like the per-type glyphs (count + gauge inherit it via
 // currentColor), keeping clusters on-theme rather than set apart.
@@ -203,6 +231,12 @@ export async function rasterizeNodeIcon(id: string, isDark: boolean): Promise<Ra
   const scale = currentScale();
   const styles = getComputedStyle(document.documentElement);
 
+  if (id.startsWith("node-live-")) {
+    const type = id.slice("node-live-".length);
+    if (type !== "unknown" && !NODE_TYPE_NAMES.includes(type as typeof NODE_TYPE_NAMES[number])) return null;
+    return { data: drawLiveDot(nodeTypeColor(type, styles), isDark, scale), pixelRatio: scale };
+  }
+
   // Cluster hexagon: look up this id's density level and rasterize the recolored SVG. Checked before
   // the generic node- arm so cluster ids never fall into the per-type glyph path.
   if (id.startsWith(CLUSTER_ICON_ID)) {
@@ -214,7 +248,7 @@ export async function rasterizeNodeIcon(id: string, isDark: boolean): Promise<Ra
     return { data, pixelRatio: scale };
   }
   if (id === NODE_ICON_UNKNOWN) {
-    const muted = styles.getPropertyValue("--palette-text-muted").trim() || "#73737B";
+    const muted = nodeTypeColor("unknown", styles);
     return { data: drawRing(muted, scale), pixelRatio: scale };
   }
   if (id === SELECTION_RING_ICON_ID) {
@@ -229,7 +263,7 @@ export async function rasterizeNodeIcon(id: string, isDark: boolean): Promise<Ra
   const color = NODE_TYPE_COLOR[type];
   const svg = svgText(type, observer, isDark);
   if (!color || !svg) return null;
-  const nodeColor = styles.getPropertyValue(color.colorVar).trim() || color.fallback;
+  const nodeColor = nodeTypeColor(type, styles);
   // light basemaps use the hollow Wireframe glyph -> give it a solid backing for contrast
   const backing = isDark ? undefined : WIREFRAME_BACKING;
   const data = await rasterizeSvg(styleSvg(svg, nodeColor, isDark), scale, MARKER_SIZE, backing);

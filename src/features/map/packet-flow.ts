@@ -38,6 +38,58 @@ export function resolvedPathNodes(resolvedPath: ResolvedHop[]): { id: string; ln
   return out;
 }
 
+export type LivePathStop =
+  | { id: string; lng: number; lat: number; ghost: false }
+  | { id: null; lng: number; lat: number; ghost: true };
+
+const longitudeDelta = (from: number, to: number) => ((to - from + 540) % 360) - 180;
+const normalizeLongitude = (lng: number) => ((lng + 540) % 360) - 180;
+
+// Live paths can show schematic stops for unknown hops, but only between located anchors.
+// Trim unlocated ends rather than extrapolating them; preserve every remaining hop slot, including
+// revisits. Ghost coordinates are illustrative, never a claim about a real node's position or ID.
+export function livePathStops(chain: readonly ResolvedHop[]): LivePathStop[] {
+  const anchors = chain.map(locatedHopNode);
+  const first = anchors.findIndex(node => node !== undefined);
+  if (first < 0) return [];
+  const last = anchors.findLastIndex(node => node !== undefined);
+  const realStop = (index: number): LivePathStop => {
+    const node = anchors[index]!;
+    return { id: node.id, lng: node.longitude!, lat: node.latitude!, ghost: false };
+  };
+  const stops: LivePathStop[] = [realStop(first)];
+  for (let left = first; left < last;) {
+    let right = left + 1;
+    while (!anchors[right]) right++;
+    const from = anchors[left]!;
+    const to = anchors[right]!;
+    for (let index = left + 1; index < right; index++) {
+      const fraction = (index - left) / (right - left);
+      stops.push({
+        id: null,
+        ghost: true,
+        lng: normalizeLongitude(from.longitude! + longitudeDelta(from.longitude!, to.longitude!) * fraction),
+        lat: from.latitude! + (to.latitude! - from.latitude!) * fraction,
+      });
+    }
+    stops.push(realStop(right));
+    left = right;
+  }
+  return stops;
+}
+
+// Unwrap rendering longitudes consistently for stops, dots and trails. A dateline crossing must
+// follow the short segment, not sweep across the world; actual node coordinates remain unchanged.
+export function livePathCoordinates(stops: readonly LivePathStop[]): [number, number][] {
+  const coords: [number, number][] = [];
+  for (const stop of stops) {
+    const previous = coords.at(-1);
+    const lng = previous ? previous[0] + longitudeDelta(normalizeLongitude(previous[0]), stop.lng) : stop.lng;
+    coords.push([lng, stop.lat]);
+  }
+  return coords;
+}
+
 // Position at fractional hop index t (0 .. coords.length-1): the integer part picks the hop segment,
 // the fraction interpolates within it. Constant time per hop, so long and short hops feel the same.
 export function posAtHop(coords: [number, number][], t: number): [number, number] {

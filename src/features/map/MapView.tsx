@@ -10,6 +10,10 @@ import { useMapBorders } from "./useMapBorders";
 import { useMapBordersData } from "./useMapBordersData";
 import { useMapPacketFlow } from "./useMapPacketFlow";
 import { PacketFlowButton } from "./PacketFlowButton";
+import { LivePacketLogPanel } from "./LivePacketLogPanel";
+import { useLivePacketLog } from "./useLivePacketLog";
+import { useIsMobile } from "../../hooks/useMediaQuery";
+import { useWsStatus } from "../../hooks/useWsStatus";
 import { useMapNodesData } from "./useMapNodesData";
 import { nodesToFeatureCollection, filterByNodeType, buildNeighborEdges, buildFocusedNeighborEdges, neighborFocusIds, type NeighborEdgeProps } from "./node-geojson";
 import { MapSettingsPanel } from "./MapSettingsPanel";
@@ -36,9 +40,10 @@ interface MapViewProps {
   // shared with the Nodes tab (lifted to AppInner) so the open NodeDetailPanel stays live
   selectedNodeId: string | null;
   onSelectNode: (id: string) => void;
+  onAnalyzePacket: (hash: string) => void;
 }
 
-export function MapView({ wsManager, selectedNodeId, onSelectNode }: MapViewProps) {
+export function MapView({ wsManager, selectedNodeId, onSelectNode, onAnalyzePacket }: MapViewProps) {
   const { t } = useTranslation();
   // Deep-link params, read once at mount (like the region's ?iata seed). Each setting below is seeded
   // URL -> localStorage -> default; the URL wins for this session but is never written back to
@@ -72,12 +77,9 @@ export function MapView({ wsManager, selectedNodeId, onSelectNode }: MapViewProp
   }, []);
 
   const [clustered, setClustered] = useState(
-    () => urlView.clustered ?? localStorage.getItem(MAP_CLUSTER_STORAGE_KEY) !== "off",
+    // A live share-link describes the forced-off view, not the user's saved normal-map preference.
+    () => (urlView.flow ? undefined : urlView.clustered) ?? localStorage.getItem(MAP_CLUSTER_STORAGE_KEY) !== "off",
   );
-  const handleClusteredChange = useCallback((c: boolean) => {
-    setClustered(c);
-    localStorage.setItem(MAP_CLUSTER_STORAGE_KEY, c ? "on" : "off");
-  }, []);
 
   const [neighborLines, setNeighborLines] = useState<NeighborLinesMode>(() => {
     if (urlView.neighborLines) return urlView.neighborLines;
@@ -91,6 +93,12 @@ export function MapView({ wsManager, selectedNodeId, onSelectNode }: MapViewProp
 
   // live packet-flow animation: opt-in per session (off by default, not persisted; a deep link can seed it)
   const [packetFlow, setPacketFlow] = useState(() => urlView.flow ?? false);
+  const effectiveClustered = !packetFlow && clustered;
+  const handleClusteredChange = useCallback((c: boolean) => {
+    if (packetFlow) return;
+    setClustered(c);
+    localStorage.setItem(MAP_CLUSTER_STORAGE_KEY, c ? "on" : "off");
+  }, [packetFlow]);
 
   // IATA region borders overlay, off by default; seeded URL -> localStorage like the other toggles
   const [borders, setBorders] = useState(() => urlView.borders ?? localStorage.getItem(MAP_BORDERS_STORAGE_KEY) === "on");
@@ -108,6 +116,10 @@ export function MapView({ wsManager, selectedNodeId, onSelectNode }: MapViewProp
   const { iatas: selectedIatas, regionKey, isResolved } = useRegion();
   const { selection } = useRegionSelection();
   const regionPending = isResolved === false;
+  const isMobile = useIsMobile();
+  const { status: wsStatus } = useWsStatus(wsManager);
+  // Collect only during desktop Live mode; collapsing the viewer does not stop collection.
+  const livePacketEntries = useLivePacketLog(wsManager, packetFlow && !isMobile && !regionPending, regionKey, selectedIatas);
   const queryClient = useQueryClient();
   // marker/cluster icons are canvas-drawn from the active --palette-* vars, so useMapNodes has to
   // re-register them whenever the palette changes: on a theme switch, and once on load when the async
@@ -164,7 +176,7 @@ export function MapView({ wsManager, selectedNodeId, onSelectNode }: MapViewProp
     return buildNeighborEdges(nodes, "on", selectedNodeId);
   }, [nodes, neighborLines, selectedNodeId, focusNeighbors]);
 
-  // With neighbors shown and a node selected, fade every other node (like live mode) to spotlight
+  // With neighbors shown and a node selected, fade every other node to spotlight
   // the selection and its neighbors. null when there's nothing to focus, so the map stays full-bright.
   const focusIds = useMemo(
     () => (neighborLines === "off" ? null : neighborFocusIds(nodes, selectedNodeId)),
@@ -200,7 +212,7 @@ export function MapView({ wsManager, selectedNodeId, onSelectNode }: MapViewProp
     const snapshot: MapViewSnapshot = {
       center: center ? [center.lng, center.lat] : DEFAULT_CENTER,
       zoom: map?.getZoom() ?? DEFAULT_ZOOM,
-      clustered,
+      clustered: effectiveClustered,
       nodeType: typeFilter,
       neighborLines,
       styleId,
@@ -208,12 +220,12 @@ export function MapView({ wsManager, selectedNodeId, onSelectNode }: MapViewProp
       borders,
     };
     return { tab: "Map", ...buildMapParams(snapshot) };
-  }, [mapRef, clustered, typeFilter, neighborLines, styleId, packetFlow, borders]);
+  }, [mapRef, effectiveClustered, typeFilter, neighborLines, styleId, packetFlow, borders]);
 
-  useMapNodes(mapRef, nodeIconResolverRef, isReady, geojson, isDark, themeKey, clustered, onSelectNode, selectedNodeId, packetFlow, focusIds, `${regionKey}:${typeFilter}`);
+  useMapNodes(mapRef, nodeIconResolverRef, isReady, geojson, isDark, themeKey, effectiveClustered, onSelectNode, selectedNodeId, packetFlow, focusIds, `${regionKey}:${typeFilter}`);
   useMapNeighbors(mapRef, isReady, neighborEdges, themeKey);
   useMapBorders(mapRef, isReady, borderData, themeKey);
-  useMapPacketFlow(mapRef, isReady, packetFlow, wsManager, themeKey, regionKey);
+  useMapPacketFlow(mapRef, isReady, packetFlow, wsManager, themeKey, regionKey, geojson);
 
   return (
     <div className="relative flex flex-1 min-h-0">
@@ -226,8 +238,9 @@ export function MapView({ wsManager, selectedNodeId, onSelectNode }: MapViewProp
         onStyleChange={handleStyleChange}
         typeFilter={typeFilter}
         onTypeChange={handleTypeChange}
-        clustered={clustered}
+        clustered={effectiveClustered}
         onClusteredChange={handleClusteredChange}
+        clusteringDisabled={packetFlow}
         neighborLines={neighborLines}
         onNeighborLinesChange={handleNeighborLinesChange}
         borders={borders}
@@ -235,6 +248,7 @@ export function MapView({ wsManager, selectedNodeId, onSelectNode }: MapViewProp
         buildShareParams={buildShareParams}
       />
       <PacketFlowButton active={packetFlow} onToggle={() => setPacketFlow((v) => !v)} />
+      {packetFlow && !isMobile && <LivePacketLogPanel entries={livePacketEntries} status={wsStatus} regionPending={regionPending} onAnalyzePacket={onAnalyzePacket} />}
       {/* streams in 50 at a time; the count climbs as pages land, then the pill disappears */}
       <LoadingPill loading={isPaging || regionPending} error={nodesError} count={loadedCount} noun="nodes" />
       {error && (

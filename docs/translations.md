@@ -1,5 +1,8 @@
 # Translating Beacon
 
+The bundled languages are English (`en`) and Lithuanian (`lt`). Saved preferences
+for a language that is no longer bundled fall back to Lithuanian.
+
 The header language picker defaults to Lithuanian when no valid saved selection
 is available and saves the selected language in this browser. Valid saved choices
 are preserved; an unset or empty string in a catalog falls back to English.

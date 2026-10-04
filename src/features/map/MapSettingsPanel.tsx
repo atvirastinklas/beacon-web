@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MapStyleSwitcher } from "./MapStyleSwitcher";
 import { SegmentedControl } from "./SegmentedControl";
@@ -52,6 +52,7 @@ interface MapSettingsPanelProps {
   onTypeChange: (t: string) => void;
   clustered: boolean;
   onClusteredChange: (c: boolean) => void;
+  clusteringDisabled?: boolean;
   neighborLines: NeighborLinesMode;
   onNeighborLinesChange: (mode: NeighborLinesMode) => void;
   borders: boolean;
@@ -67,6 +68,7 @@ export function MapSettingsPanel({
   onTypeChange,
   clustered,
   onClusteredChange,
+  clusteringDisabled = false,
   neighborLines,
   onNeighborLinesChange,
   borders,
@@ -74,6 +76,7 @@ export function MapSettingsPanel({
   buildShareParams,
 }: MapSettingsPanelProps) {
   const { t } = useTranslation();
+  const clusteringHintId = useId();
   const isMobile = useIsMobile();
   const on = { value: "on", label: t("map.on") };
   const off = { value: "off", label: t("map.off") };
@@ -139,7 +142,10 @@ export function MapSettingsPanel({
               value={clustered ? "on" : "off"}
               onChange={(v) => onClusteredChange(v === "on")}
               className="w-full"
+              disabled={clusteringDisabled}
+              describedBy={clusteringDisabled ? clusteringHintId : undefined}
             />
+            {clusteringDisabled && <p id={clusteringHintId} className="mt-2 text-[11px] leading-relaxed text-text-muted">{t("map.liveClusteringHint", { defaultValue: "Clustering is off while Live Map is running." })}</p>}
           </Section>
           <Section title={t("map.neighborLines")}>
             <SegmentedControl

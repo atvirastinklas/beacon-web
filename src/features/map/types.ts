@@ -89,6 +89,7 @@ export const IATA_PITCH = 45;
 export const NODES_SOURCE_ID = "nodes";
 export const NODES_CLUSTER_LAYER_ID = "nodes-clusters"; // symbol layer (bubble icon + count)
 export const NODES_POINT_LAYER_ID = "nodes-unclustered";
+export const LIVE_NODE_FOREGROUND_LAYER_ID = "nodes-live-foreground";
 export const NODES_SELECTED_LAYER_ID = "nodes-selected"; // circle ring under the selected node's icon
 // Same ring for a node shown as a spiderfied leaf (it's inside a cluster, so the id-filtered
 // NODES_SELECTED_LAYER_ID can't reach it). Fed by its own geojson source, pointed at the leaf.
@@ -106,24 +107,25 @@ export const IATA_BORDERS_FILL_LAYER_ID = "iata-borders-fill"; // low-alpha fill
 export const IATA_BORDERS_LINE_LAYER_ID = "iata-borders-line"; // outline stroke over the fill
 export const MAP_BORDERS_STORAGE_KEY = "beacon-map-borders";
 
-// --- Live packet-flow (modelled on MeshMapper's "LiveViz"): dim every node, then per packet shoot an
-// orange dot along its real hop path with a fading dashed trail, flashing each node as the dot crosses ---
+// --- Live packet-flow: keep compact node dots visible, then per packet shoot an orange dot along
+// its real hop path with a fading dashed trail, highlighting nodes as the dot crosses ---
 export const PACKET_FLOW_TRAIL_SOURCE_ID = "packet-flow-trail";
 export const PACKET_FLOW_TRAIL_LAYER_ID = "packet-flow-trail"; // dashed line tracing behind the dot
 export const PACKET_FLOW_DOT_SOURCE_ID = "packet-flow-dot";
 export const PACKET_FLOW_DOT_HALO_LAYER_ID = "packet-flow-dot-halo"; // dark halo behind the dot
 export const PACKET_FLOW_DOT_LAYER_ID = "packet-flow-dot"; // the moving packet dot
+export const PACKET_FLOW_GHOST_SOURCE_ID = "packet-flow-ghosts";
+export const PACKET_FLOW_GHOST_LAYER_ID = "packet-flow-ghosts"; // approximate, unlocated intermediate hops
+export const PACKET_FLOW_ANCHOR_SOURCE_ID = "packet-flow-anchors";
+export const PACKET_FLOW_ANCHOR_LAYER_ID = "packet-flow-anchors"; // resolved hops missing from the normal node view
 export const PACKET_FLOW_COLOR = "#ff6b35"; // warm orange, distinct from the node palette so packets pop
 export const PACKET_FLOW_HOP_MS = 480; // ms the dot takes to cross one hop segment
 export const PACKET_FLOW_FLASH_MS = 900; // a crossed node's flash decays back to dim over this
 export const PACKET_FLOW_TRAIL_FADE_MS = 1000; // the dashed trail fades once the dot reaches the end
 export const PACKET_FLOW_MAX = 120; // cap on concurrent packet animations (busy-feed guard)
-// Idle individual-node opacity while Live is on. Kept low because with clustering off, co-located
-// markers overlap and their alphas composite toward bright; a crossed node still pops to full via
-// the max(dim, feature-state glow) expression.
+// Selection-focus opacity for nodes outside the selected node's neighborhood. Live dots stay opaque.
 export const LIVE_DIM_OPACITY = 0.08;
-// Clusters dim further: many overlapping semi-transparent hexagons composite toward opaque, so a
-// dense cluster field stops being see-through. A lower per-cluster alpha keeps the stack translucent.
+// Clusters dim during selection focus because their aggregate can't identify individual neighbors.
 export const LIVE_CLUSTER_DIM_OPACITY = 0.07;
 
 export const CLUSTER_RADIUS = 50; // px

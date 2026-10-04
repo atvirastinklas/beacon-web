@@ -4,6 +4,7 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 import {
   NODES_CLUSTER_LAYER_ID,
   NODES_POINT_LAYER_ID,
+  LIVE_NODE_FOREGROUND_LAYER_ID,
   PACKET_FLOW_TRAIL_LAYER_ID,
   PACKET_FLOW_DOT_HALO_LAYER_ID,
   PACKET_FLOW_DOT_LAYER_ID,
@@ -22,7 +23,7 @@ import { useMapNodes } from "../../../src/features/map/useMapNodes";
 function stackMap(layers: string[]): MapLibreMap {
   const sources = new Set<string>();
   const fns = new Map<PropertyKey, unknown>();
-  const canvas = { style: {} as Record<string, string> };
+  const canvas = document.createElement("canvas");
   const impl: Record<string, unknown> = {
     getCanvas: () => canvas,
     getLayer: (id: string) => (layers.includes(id) ? { id } : undefined),
@@ -66,5 +67,7 @@ describe("useMapNodes layer order", () => {
     expect(layers.indexOf(NODES_CLUSTER_LAYER_ID)).toBeLessThan(trail);
     expect(layers.indexOf(NODES_POINT_LAYER_ID)).toBeLessThan(trail);
     expect(layers.indexOf(NODES_CLUSTER_LAYER_ID)).toBeLessThan(layers.indexOf(NODES_POINT_LAYER_ID));
+    expect(layers.indexOf(LIVE_NODE_FOREGROUND_LAYER_ID)).toBeGreaterThan(layers.indexOf(NODES_POINT_LAYER_ID));
+    expect(layers.indexOf(LIVE_NODE_FOREGROUND_LAYER_ID)).toBeLessThan(trail);
   });
 });

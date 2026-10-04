@@ -210,6 +210,30 @@ function AppInner() {
     }, { replace: true });
   }, [setSearchParams]);
 
+  // Live observations have no report ID. Open the existing sidebar on Map with a fresh packet
+  // selection, without navigating away or retaining another packet's report/node sidebar.
+  const handleAnalyzeMapPacket = useCallback((hash: string) => {
+    setSelectedObservationId(null);
+    setSelectedNodeId(null);
+    setPanels([]);
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.set("hash", hash);
+      next.set("analyze", "1");
+      for (const key of ["observation", "node", "path"]) next.delete(key);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const handleSelectMapNode = useCallback((id: string) => {
+    setSelectedNodeId(id);
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.delete("analyze");
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   const handleTabChange = (tab: string, mapFocus?: { lat: number; lng: number }) => {
     // On mobile a detail panel (and the analyzer) fills the screen, so leaving its tab must close it;
     // desktop side panels persist across tabs. Map and Analytics start without carried-over windows.
@@ -222,8 +246,9 @@ function AppInner() {
       const next = new URLSearchParams(prev);
       next.set("tab", tab);
       if (tab !== "Routes") for (const key of ["route", "routeIata"]) next.delete(key);
-      // the analyzer is URL-backed, so its mobile close lives here rather than above
-      if (isMobile) next.delete("analyze");
+      // Map now renders its own packet sidebar: don't carry one into a new Map visit.
+      // Analytics only hides the desktop drawer, preserving it when returning to another tab.
+      if (isMobile || (activeTab !== tab && tab === "Map")) next.delete("analyze");
       // AppShell fires onTabChange even for a no-op click on the already-active tab — only an actual
       // tab switch should drop the other tab's compare state (compareUntil is shared by both lists).
       const changed = prev.get("tab") !== tab;
@@ -318,8 +343,10 @@ function AppInner() {
     Traces: <TraceList onAnalyze={hash => { if (hash) viewPacket(hash); }} onViewNode={viewNode} />,
     Channels: <ChannelList wsManager={wsManager} onAnalyze={handleAnalyze} />,
     Analytics: <StatsOverview onViewNode={viewNode} />,
-    Map: <MapView wsManager={wsManager} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} />,
+    Map: <MapView wsManager={wsManager} selectedNodeId={selectedNodeId} onSelectNode={handleSelectMapNode} onAnalyzePacket={handleAnalyzeMapPacket} />,
   };
+
+  const showAnalyzer = analyzerHash && activeTab !== "Analytics" && (activeTab !== "Map" || !isMobile);
 
   return (
     <RegionProvider defaultSelection={initialSelection}>
@@ -339,7 +366,7 @@ function AppInner() {
               {tabContent[activeTab]}
             </Suspense>
           </div>
-          {analyzerHash && activeTab !== "Map" && activeTab !== "Analytics" && (
+          {showAnalyzer && (
             <PacketAnalyzerDrawer
               detail={analyzerDetail}
               loading={analyzerLoading}
@@ -351,7 +378,7 @@ function AppInner() {
               onViewPath={(key) => { if (analyzerDetail) handleViewPath(analyzerDetail, key); }}
             />
           )}
-          {(activeTab === "Map" || activeTab === "Nodes") && selectedNodeId && (
+          {(activeTab === "Map" || activeTab === "Nodes") && selectedNodeId && !(activeTab === "Map" && showAnalyzer) && (
             <NodeDetailPanel
               nodeId={selectedNodeId}
               onClose={handleCloseNode}

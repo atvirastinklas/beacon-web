@@ -349,6 +349,15 @@
       }
     },
     "observerPage": {
+      "countsPartial": "Skaičiai pagrįsti turima istorija; duomenys neišsamūs.",
+      "directoryPeriod": "Turima istorija, iki 7 dienų",
+      "refresh": "Atnaujinti",
+      "loadMore": "Įkelti daugiau stebėtojų",
+      "end": "Įkelti visi stebėtojai",
+      "upgradeRequired": "Stebėtojų puslapiavimui reikia atnaujinti serverį.",
+      "countsUnavailable": "Šio laikotarpio srauto skaičiai nepasiekiami.",
+      "countsUnavailableName": "Šio laikotarpio srauto skaičiai nepasiekiami; rikiuojama pagal pavadinimą.",
+      "countsThrough": "Skaičiai iki {{time}} UTC",
       "back": "Grįžti į stebėtojus",
       "detail": "Stebėtojo informacija",
       "range": "Laikotarpis",

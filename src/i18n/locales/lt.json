@@ -260,6 +260,20 @@
       "other": "Kitos aprėptys",
       "chartDescription": "Skaičiai pagal perdavimo aprėptį. Tikslios visų paiešką atitinkančių aprėpčių reikšmės pateiktos lentelėje."
     },
+    "repeaterTelemetry": {
+      "title": "Telemetrija",
+      "latestReading": "Paskutinė telemetrija:",
+      "battery": "Baterija",
+      "temperature": "Temperatūra",
+      "rssi": "RSSI",
+      "snr": "SNR",
+      "empty": "Telemetrijos duomenų nėra.",
+      "error": "Nepavyko įkelti telemetrijos.",
+      "retry": "Bandyti dar kartą",
+      "noMetricReadings": "Šio rodiklio duomenų nėra.",
+      "chartLabel": "{{metric}} ({{unit}}) kitimas laike",
+      "chartInstructions": "Pasirinkę grafiką, peržiūrėkite rodmenis kairiuoju ir dešiniuoju rodyklių klavišais."
+    },
     "nodeDetail": {
       "viewOnMap": "Rodyti žemėlapyje",
       "title": "Mazgo informacija",

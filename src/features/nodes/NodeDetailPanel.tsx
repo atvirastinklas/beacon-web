@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { lazy, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { getNode, getNodeObservations, getNodeNeighbors } from "../../api/client";
 import { Badge } from "../../components/Badge";
@@ -11,6 +12,8 @@ import { Timestamp } from "../../components/Timestamp";
 import { hasMapLocation } from "../map/location";
 import type { NodeObservation, NodeNeighbor } from "./types";
 import { ForeignNodeBadge } from "./ForeignNodeBadge";
+
+const RepeaterTelemetry = lazy(() => import("./RepeaterTelemetry"));
 
 function NodeNeighborRow({ neighbor, onClick }: { neighbor: NodeNeighbor; onClick?: () => void }) {
   const { t } = useTranslation();
@@ -186,6 +189,26 @@ export function NodeDetailPanel({ nodeId, onClose, onViewObserver, onViewNode, o
                 )}
               </div>
             </Section>
+
+            {node.nodeTypeName.toLowerCase() === "repeater" && (
+              <Section title={
+                <a
+                  href={`https://telemetry.ite.lt/api/#${node.publicKey}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  {t("repeaterTelemetry.title")}
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <path d="M15 3h6v6M21 3l-9 9M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5" />
+                  </svg>
+                </a>
+              }>
+                <Suspense fallback={<div role="status" className="font-mono text-xs text-text-normal">{t("common.loadingDots")}</div>}>
+                  <RepeaterTelemetry key={node.publicKey} publicKey={node.publicKey} />
+                </Suspense>
+              </Section>
+            )}
 
             <Section title={node.knownNeighborCount > 0 ? t("nodeDetail.neighborsCount", { count: node.knownNeighborCount }) : t("nodeDetail.neighbors")}>
               {neighbors && neighbors.length > 0 ? (

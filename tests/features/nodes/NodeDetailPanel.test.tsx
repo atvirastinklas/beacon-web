@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { NodeDetailPanel } from "../../../src/features/nodes/NodeDetailPanel";
@@ -45,17 +45,73 @@ function renderPanel(onViewNode = vi.fn()) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  render(<NodeDetailPanel nodeId="node-self" onClose={vi.fn()} onViewObserver={vi.fn()} onViewNode={onViewNode} />, { wrapper });
-  return { onViewNode };
+  const result = render(<NodeDetailPanel nodeId="node-self" onClose={vi.fn()} onViewObserver={vi.fn()} onViewNode={onViewNode} />, { wrapper });
+  return { ...result, onViewNode };
 }
 
 beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true, telemetry: [] }), { status: 200 })));
   mockGetNode.mockReset();
   mockGetNodeObservations.mockReset();
   mockGetNodeNeighbors.mockReset();
   mockGetNode.mockResolvedValue(node);
   mockGetNodeObservations.mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
   mockGetNodeNeighbors.mockResolvedValue([]);
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("NodeDetailPanel repeater telemetry", () => {
+  it("links the selected repeater's telemetry between timestamps and neighbors", async () => {
+    renderPanel();
+
+    const link = await screen.findByRole("link", { name: "Telemetry" });
+    expect(link).toHaveAttribute("href", "https://telemetry.ite.lt/api/#aabbccddeeff");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noreferrer");
+    expect(link).toHaveAccessibleName("Telemetry");
+    expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText("Timestamps").compareDocumentPosition(link) & document.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link.compareDocumentPosition(screen.getByText("Neighbors")) & document.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("does not show or fetch repeater telemetry for a client node", async () => {
+    mockGetNode.mockResolvedValue({ ...node, nodeType: 1, nodeTypeName: "client" });
+
+    renderPanel();
+
+    await screen.findByText("Self Node");
+    expect(screen.queryByRole("link", { name: "Telemetry" })).not.toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("switches the public-key link and readings without bleeding the previous repeater's data", async () => {
+    let resolveSecond!: (response: Response) => void;
+    const response = (battery_v: number) => new Response(JSON.stringify({ success: true, telemetry: [
+      { iso: "2026-10-14T13:24:57+03:00", battery_v, temperature_c: 20, rssi: -118, snr: -9.75 },
+    ] }));
+    const telemetryFetch = vi.fn()
+      .mockResolvedValueOnce(response(4.15))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveSecond = resolve; }));
+    vi.stubGlobal("fetch", telemetryFetch);
+    mockGetNode.mockImplementation(async (id) => id === "node-self"
+      ? node
+      : { ...node, id, name: "Other repeater", nodeTypeName: "repeater", publicKey: "112233445566" });
+    const { rerender } = renderPanel();
+    expect(await screen.findByText("4.15 V", { selector: "figcaption span" })).toBeInTheDocument();
+
+    rerender(<NodeDetailPanel nodeId="node-other" onClose={vi.fn()} onViewObserver={vi.fn()} />);
+
+    await screen.findByText("Other repeater");
+    expect(screen.getByRole("link", { name: "Telemetry" })).toHaveAttribute("href", "https://telemetry.ite.lt/api/#112233445566");
+    expect(screen.queryByText("4.15 V", { selector: "figcaption span" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("application")).not.toBeInTheDocument();
+    await waitFor(() => expect(telemetryFetch).toHaveBeenLastCalledWith(
+      "https://telemetry.ite.lt/api/node/112233445566", expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+    await act(async () => resolveSecond(response(3.8)));
+    expect(await screen.findByText("3.8 V", { selector: "figcaption span" })).toBeInTheDocument();
+  });
 });
 
 describe("NodeDetailPanel neighbors", () => {

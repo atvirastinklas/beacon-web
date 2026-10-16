@@ -250,6 +250,20 @@
       "other": "Other scopes",
       "chartDescription": "Counts by transport scope. Exact values for all matching scopes are listed in the table."
     },
+    "repeaterTelemetry": {
+      "title": "Telemetry",
+      "latestReading": "Latest reading:",
+      "battery": "Battery",
+      "temperature": "Temperature",
+      "rssi": "RSSI",
+      "snr": "SNR",
+      "empty": "No telemetry readings available.",
+      "error": "Could not load telemetry.",
+      "retry": "Retry",
+      "noMetricReadings": "No readings for this metric.",
+      "chartLabel": "{{metric}} ({{unit}}) over time",
+      "chartInstructions": "Focus a chart and use the left and right arrow keys to explore readings."
+    },
     "nodeDetail": {
       "viewOnMap": "View on map",
       "title": "Node Detail",

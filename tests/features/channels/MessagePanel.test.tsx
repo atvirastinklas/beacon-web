@@ -114,6 +114,18 @@ describe("MessagePanel heard badge", () => {
     expect(screen.getByTitle("Heard 1 time")).toBeInTheDocument();
   });
 
+  it("contains positioned screen-reader labels inside the message scroller", async () => {
+    mount();
+    const badge = await screen.findByTitle("Heard 3 times");
+    const label = screen.getByText("Heard 3 times");
+    const scroller = badge.closest(".overflow-y-auto")!;
+
+    // sr-only is absolute: a containing block outside the scroller leaks its
+    // offscreen static position into document overflow, below the app footer.
+    expect(label).toHaveClass("sr-only");
+    expect(scroller).toContainElement(label.closest(".relative"));
+  });
+
 });
 
 describe("MessagePanel live follow", () => {

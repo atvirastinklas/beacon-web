@@ -22,6 +22,11 @@ build/
 
 # Testing
 coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+.auth/
 .references/
 
 # OS

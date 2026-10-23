@@ -69,6 +69,11 @@ catalog keys and translate display labels without changing route/data identifier
 - Run `npm test` before opening a PR. All tests must pass.
 - If you are fixing a bug, add a test that would have caught it.
 
+Browser regression tests use Playwright separately from Vitest. See
+[the browser testing guide](e2e/README.md) for setup, backend-target approval,
+interactive agent browsing, and the `npm run test:e2e` commands. Do not run browser
+checks against an unapproved backend, even when the frontend is on localhost.
+
 ---
 
 ## Project structure

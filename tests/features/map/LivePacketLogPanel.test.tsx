@@ -197,15 +197,15 @@ describe("desktop Live packets panel", () => {
 
   it("puts the embedded sender before decoded content, keeping verified route context secondary", () => {
     const packet = entry(1, "Fallback summary");
-    packet.message = { senderName: "Plyta 🧱🇱🇹", content: "Test" };
+    packet.message = { senderName: "Test sender 📡", content: "Test" };
     packet.data.observation.resolvedSource = { confidence: "high", nodes: [{ id: "source", publicKey: "a", name: "Source node" }] };
     packet.data.observation.resolvedDestination = { confidence: "high", nodes: [{ id: "destination", publicKey: "b", name: "Destination node" }] };
     render(<LivePacketLogPanel entries={[packet]} status="connected" />);
-    const row = screen.getByRole("button", { name: "Packet details: ADVERT · Sender: Plyta 🧱🇱🇹 · Test · Source node → Destination node" });
-    expect(row.querySelector('[data-slot="packet-message"]')).toHaveTextContent("Plyta 🧱🇱🇹: Test · Source node → Destination node");
-    expect(row.querySelector('[data-slot="packet-sender"]')).toHaveAttribute("title", "Sender: Plyta 🧱🇱🇹");
+    const row = screen.getByRole("button", { name: "Packet details: ADVERT · Sender: Test sender 📡 · Test · Source node → Destination node" });
+    expect(row.querySelector('[data-slot="packet-message"]')).toHaveTextContent("Test sender 📡: Test · Source node → Destination node");
+    expect(row.querySelector('[data-slot="packet-sender"]')).toHaveAttribute("title", "Sender: Test sender 📡");
     expect(row.querySelector('[data-slot="packet-context"]')).toHaveTextContent("Source node → Destination node");
-    expect(row.querySelector('[data-slot="packet-context"]')).not.toHaveTextContent("Plyta");
+    expect(row.querySelector('[data-slot="packet-context"]')).not.toHaveTextContent("Test sender");
     fireEvent.click(row);
     expect(analyze).toHaveBeenCalledExactlyOnceWith(packet.data.packetHash);
   });

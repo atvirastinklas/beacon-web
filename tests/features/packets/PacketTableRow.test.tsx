@@ -2,9 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { PacketTableRow } from "../../../src/features/packets/PacketTableRow";
 
-import type { LatestObserver, PacketSummary, ResolvedHop } from "../../../src/types/api";
+import type { LatestObserver, ResolvedHop } from "../../../src/types/api";
+import type { PacketListItem } from "../../../src/features/packets/types";
 
-const pkt = (over: Partial<PacketSummary> = {}): PacketSummary => ({
+const pkt = (over: Partial<PacketListItem> = {}): PacketListItem => ({
   packetHash: "AA11BB22", payloadType: 1, payloadTypeName: "ADVERT",
   routeType: 1, routeTypeName: "FLOOD",
   firstHeardAt: 1700000000, lastHeardAt: 1700000000, observationCount: 3, ...over,
@@ -24,6 +25,62 @@ const observer = (
 };
 
 describe("PacketTableRow", () => {
+  it("shows the decoded sender and message instead of endpoints", () => {
+    const packet = {
+      ...pkt({ payloadType: 5, summary: "Encoded summary", latestObserver: observer({ resolvedSource: node("Source node"), resolvedDestination: node("Destination node") }) }),
+      message: { senderName: "Alice", content: "Hello from the mesh" },
+    };
+    render(<PacketTableRow packet={packet} expanded={false} onToggle={() => {}} />);
+
+    expect(screen.getByText("Alice:")).toBeInTheDocument();
+    expect(screen.getByText("Hello from the mesh")).toBeInTheDocument();
+    expect(screen.queryByText("Source node")).not.toBeInTheDocument();
+    expect(screen.queryByText("Destination node")).not.toBeInTheDocument();
+    expect(screen.queryByText("Encoded summary")).not.toBeInTheDocument();
+  });
+
+  it.each(["", " \n\t "])("retains endpoints for empty decoded content (%j)", (content) => {
+    render(<PacketTableRow packet={pkt({
+      payloadType: 5,
+      message: { senderName: "Alice", content },
+      latestObserver: observer({ resolvedSource: node("Source node"), resolvedDestination: node("Destination node") }),
+    })} expanded={false} onToggle={() => {}} />);
+
+    expect(screen.queryByText("Alice:")).not.toBeInTheDocument();
+    expect(screen.getByText("Source node")).toBeInTheDocument();
+    expect(screen.getByText("Destination node")).toBeInTheDocument();
+  });
+
+  it("uses a uniquely resolved source when the decoded sender is blank", () => {
+    render(<PacketTableRow packet={pkt({
+      message: { senderName: "  ", content: "Hello" },
+      latestObserver: observer({ resolvedSource: node("Source node") }),
+    })} expanded={false} onToggle={() => {}} />);
+    expect(screen.getByText("Source node:")).toBeInTheDocument();
+  });
+
+  it("does not claim an ambiguous source as the message sender", () => {
+    render(<PacketTableRow packet={pkt({
+      message: { senderName: "", content: "Hello" },
+      latestObserver: observer({ resolvedSource: { ...node("Possible source"), confidence: "ambiguous" } }),
+    })} expanded={false} onToggle={() => {}} />);
+    expect(screen.getByText("Hello")).toBeInTheDocument();
+    expect(screen.queryByText(/Possible source/)).not.toBeInTheDocument();
+  });
+
+  it("keeps long decoded text literal and within the fixed-height toggle", () => {
+    const content = `<img src=x onerror=alert(1)> ${"long message ".repeat(50)}`.trim();
+    const senderName = "Long sender name ".repeat(20);
+    const onToggle = vi.fn();
+    const { container } = render(<PacketTableRow packet={pkt({ message: { senderName, content } })} expanded={false} onToggle={onToggle} />);
+    expect(screen.getByTitle(content)).toHaveClass("truncate", "min-w-0");
+    expect(screen.getByTitle(senderName.trim())).toHaveClass("truncate");
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByRole("button")).toHaveClass("h-9");
+    fireEvent.click(screen.getByTitle(content));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
   it("prefers endpoints over a payload summary", () => {
     render(<PacketTableRow packet={pkt({ payloadType: 2, summary: "Packet summary", latestObserver: observer({ resolvedSource: node("Source node"), resolvedDestination: node("Destination node") }) })} expanded={false} onToggle={() => {}} />);
     expect(screen.queryByText("Packet summary")).not.toBeInTheDocument();

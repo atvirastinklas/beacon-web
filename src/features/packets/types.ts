@@ -1,4 +1,11 @@
 import type { PayloadTypeValue, RouteTypeValue } from "../../types/enums";
+import type { PacketSummary } from "../../types/api";
+import type { ChannelMessage } from "../channels/types";
+
+// Decoded channel events enrich the list locally; the packet REST shape is unchanged.
+export interface PacketListItem extends PacketSummary {
+  message?: Pick<ChannelMessage, "senderName" | "content">;
+}
 
 export type SearchField = "hash" | "path" | "payload";
 

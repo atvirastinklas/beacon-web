@@ -1,12 +1,13 @@
 import { useRef, useCallback, useLayoutEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useTranslation } from "react-i18next";
-import type { PacketSummary } from "../../types/api";
+import type { PacketListItem } from "./types";
 import { PacketTableHeader } from "./PacketTableHeader";
 import { PacketTableRow } from "./PacketTableRow";
 import { PacketRow } from "./PacketRow";
 import { PacketExpansion } from "./PacketExpansion";
 import { useFreshHashes } from "./useFreshHashes";
+import { usePacketPreviews } from "./usePacketPreviews";
 import { useIsMobile } from "../../hooks/useMediaQuery";
 import {
   SCROLL_TOP_THRESHOLD_PX,
@@ -15,7 +16,7 @@ import {
 } from "../../lib/constants";
 
 interface PacketVirtualListProps {
-  packets: PacketSummary[];
+  packets: PacketListItem[];
   hasNextPage: boolean;
   isFetching: boolean;
   fetchNextPage: () => void;
@@ -61,6 +62,12 @@ export function PacketVirtualList({
     overscan: 10,
     getItemKey: (index) => packets[index]?.packetHash ?? index,
   });
+  const virtualRows = virtualizer.getVirtualItems();
+  const viewportTop = virtualizer.scrollOffset ?? 0;
+  const viewportBottom = viewportTop + (virtualizer.scrollRect?.height ?? 0);
+  const previews = usePacketPreviews(virtualRows
+    .filter(row => row.end > viewportTop && row.start < viewportBottom)
+    .flatMap(row => packets[row.index] ? [packets[row.index]!] : []));
 
   // The list is frozen at the data layer while scrolled away, so there's nothing to compensate
   // here — we only report scroll position: past the threshold shows the banner, and back at the
@@ -105,9 +112,11 @@ export function PacketVirtualList({
       <div
         style={{ height: virtualizer.getTotalSize(), position: "relative" }}
       >
-        {virtualizer.getVirtualItems().map((virtualRow) => {
-          const packet = packets[virtualRow.index];
-          if (!packet) return null;
+        {virtualRows.map((virtualRow) => {
+          const original = packets[virtualRow.index];
+          if (!original) return null;
+          const message = previews.get(original.packetHash);
+          const packet = message ? { ...original, message } : original;
           const expanded = expandedHash === packet.packetHash;
           return (
             <div

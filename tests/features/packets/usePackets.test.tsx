@@ -9,6 +9,7 @@ import type { PacketServerFilter } from "../../../src/features/packets/types";
 import type { PacketSummary } from "../../../src/types/api";
 import type { WsPacketObservation } from "../../../src/types/ws";
 import { noteRateLimited, noteRequestOk } from "../../../src/api/rate-limit";
+import { LIVE_BUFFER_CAP } from "../../../src/lib/constants";
 
 const region: { iatas: string[] | undefined; regionKey: string; isResolved: boolean } = { iatas: ["YOW"], regionKey: "YOW", isResolved: true };
 vi.mock("../../../src/hooks/useRegion", () => ({
@@ -360,6 +361,87 @@ describe("usePackets live heard window", () => {
   );
 
   const flushRaf = () => rafCallbacks.splice(0).forEach((cb) => cb(0));
+
+  it("enriches a historical packet with the matching sender and message without adding activity", async () => {
+    getPackets.mockResolvedValue({ items: [packet("aa11"), packet("other")], nextCursor: null });
+    const { result } = renderHook(() => usePackets(), { wrapper });
+    await waitFor(() => expect(result.current.allPackets).toHaveLength(2));
+
+    act(() => {
+      result.current.handleChannelMessage({
+        id: 1, packetHash: "AA11", channelHash: "ab", senderName: "Alice",
+        content: "Hello mesh", sentAt: 1000,
+      });
+      flushRaf();
+    });
+
+    expect(result.current.allPackets.map(p => p.packetHash)).toEqual(["aa11", "other"]);
+    expect(result.current.allPackets[0]?.message).toEqual({ senderName: "Alice", content: "Hello mesh" });
+    expect(result.current.allPackets[1]?.message).toBeUndefined();
+    expect(result.current.newPacketCount).toBe(0);
+    expect(getPackets).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([true, false])("matches live messages arriving before observation: %s and preserves them on repeats", async (messageFirst) => {
+    const { result } = renderHook(() => usePackets(), { wrapper });
+    await waitFor(() => expect(getPackets).toHaveBeenCalled());
+    const message = { id: 1, packetHash: "AA11", channelHash: "ab", senderName: "Alice", content: "Hello mesh", sentAt: 1000 };
+    act(() => {
+      if (messageFirst) result.current.handleChannelMessage(message);
+      result.current.handlePacketObservation(observation("aa11"));
+      if (!messageFirst) result.current.handleChannelMessage(message);
+      flushRaf();
+    });
+    act(() => {
+      result.current.handlePacketObservation(observation("aa11", { observationCount: 2 }));
+      flushRaf();
+    });
+    expect(result.current.allPackets).toHaveLength(1);
+    expect(result.current.allPackets[0]?.message).toEqual({ senderName: "Alice", content: "Hello mesh" });
+    expect(result.current.allPackets[0]?.observationCount).toBe(2);
+    expect(result.current.newPacketCount).toBe(1);
+  });
+
+  it("does not introduce packets from channel messages and clears enrichment on region change", async () => {
+    const { result, rerender } = renderHook(() => usePackets(), { wrapper });
+    await waitFor(() => expect(getPackets).toHaveBeenCalled());
+    act(() => {
+      result.current.handleChannelMessage({ id: 1, packetHash: "aa11", channelHash: "ab", senderName: "Alice", content: "Hello mesh", sentAt: 1000 });
+      flushRaf();
+    });
+    expect(result.current.allPackets).toEqual([]);
+    expect(result.current.newPacketCount).toBe(0);
+    Object.assign(region, { iatas: ["YVR"], regionKey: "YVR" });
+    try {
+      rerender();
+      await waitFor(() => expect(getPackets).toHaveBeenCalledWith(["YVR"], expect.anything()));
+      act(() => {
+        const event = observation("aa11");
+        event.observation.iata = "YVR";
+        result.current.handlePacketObservation(event);
+        flushRaf();
+      });
+      expect(result.current.allPackets).toHaveLength(1);
+      expect(result.current.allPackets[0]?.message).toBeUndefined();
+    } finally {
+      Object.assign(region, { iatas: ["YOW"], regionKey: "YOW" });
+    }
+  });
+
+  it("bounds cached messages, including events that never match a visible packet", async () => {
+    getPackets.mockResolvedValue({ items: [packet("p0"), packet(`p${LIVE_BUFFER_CAP}`)], nextCursor: null });
+    const { result } = renderHook(() => usePackets(), { wrapper });
+    await waitFor(() => expect(result.current.allPackets).toHaveLength(2));
+    act(() => {
+      for (let i = 0; i <= LIVE_BUFFER_CAP; i++) {
+        result.current.handleChannelMessage({ id: i, packetHash: `p${i}`, channelHash: "ab", senderName: "Alice", content: `Message ${i}`, sentAt: 1000 });
+      }
+      flushRaf();
+    });
+    expect(result.current.allPackets[0]?.message).toBeUndefined();
+    expect(result.current.allPackets[1]?.message?.content).toBe(`Message ${LIVE_BUFFER_CAP}`);
+    expect(result.current.allPackets).toHaveLength(2);
+  });
 
   it("keeps summaries from history and passes summaries through live observations", async () => {
     getPackets.mockResolvedValue({ items: [{ ...packet("history"), summary: "Historical advert" }], nextCursor: null });

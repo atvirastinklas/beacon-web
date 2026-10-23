@@ -3,8 +3,15 @@ import { render, screen } from "@testing-library/react";
 import { PacketTableHeader } from "../../../src/features/packets/PacketTableHeader";
 
 import { GRID_TEMPLATE } from "../../../src/features/packets/packet-grid";
+import i18n from "../../../src/i18n";
 
 describe("PacketTableHeader", () => {
+  it("includes the summary label in the Lithuanian column heading", async () => {
+    await i18n.changeLanguage("lt");
+    render(<PacketTableHeader />);
+    expect(screen.getByText("Santrauka / siunt. → gav.")).toHaveAttribute("title", "Santrauka ir siuntėjas / gavėjas");
+  });
+
   it("declares every column heading", () => {
     render(<PacketTableHeader />);
     for (const h of ["Hash", "Type", "Route", "Obs", "Hops", "Hash Size", "Summary / Src → Dst", "Area", "Age"]) {

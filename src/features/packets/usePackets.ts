@@ -5,7 +5,8 @@ import { isRateLimited } from "../../api/rate-limit";
 import { useRegion } from "../../hooks/useRegion";
 import type { WsPacketObservation, WsLagged } from "../../types/ws";
 import type { PacketSummary } from "../../types/api";
-import type { PacketServerFilter } from "./types";
+import type { PacketListItem, PacketServerFilter } from "./types";
+import type { ChannelMessage } from "../channels/types";
 import { LIVE_BUFFER_CAP } from "../../lib/constants";
 
 // merge and deduplicate live + paginated packets
@@ -28,6 +29,7 @@ interface LiveSnapshot {
   buffer: readonly PacketSummary[];
   acknowledgedCount: number;
   observersByHash: ReadonlyMap<string, ReadonlySet<string>>;
+  messagesByHash: ReadonlyMap<string, NonNullable<PacketListItem["message"]>>;
 }
 
 // RAF batching avoids re-rendering on every WS message -- can be 50+/sec during floods
@@ -37,7 +39,8 @@ class LivePacketStore {
   private hashIndex = new Map<string, number>();
   private observersByHash = new Map<string, Set<string>>();
   private acknowledgedCount = 0;
-  private snapshot: LiveSnapshot = { buffer: [], acknowledgedCount: 0, observersByHash: new Map() };
+  private messagesByHash = new Map<string, NonNullable<PacketListItem["message"]>>();
+  private snapshot: LiveSnapshot = { buffer: [], acknowledgedCount: 0, observersByHash: new Map(), messagesByHash: new Map() };
   private listeners = new Set<() => void>();
   private rafId: number | null = null;
 
@@ -54,7 +57,7 @@ class LivePacketStore {
     if (this.rafId !== null) return;
     this.rafId = requestAnimationFrame(() => {
       this.rafId = null;
-      this.snapshot = { buffer: this.buffer, acknowledgedCount: this.acknowledgedCount, observersByHash: this.observersByHash };
+      this.snapshot = { buffer: this.buffer, acknowledgedCount: this.acknowledgedCount, observersByHash: this.observersByHash, messagesByHash: this.messagesByHash };
       for (const l of this.listeners) l();
     });
   }
@@ -95,6 +98,21 @@ class LivePacketStore {
     this.scheduleNotify();
   }
 
+  enrich(data: ChannelMessage): void {
+    const hash = data.packetHash.toLowerCase();
+    const previous = this.messagesByHash.get(hash);
+    if (previous?.senderName === data.senderName && previous.content === data.content) return;
+    // Events may arrive before their observation or match a history row. Keep a bounded,
+    // immutable cache, without inserting packets or changing counts/order.
+    this.messagesByHash = new Map(this.messagesByHash);
+    this.messagesByHash.delete(hash);
+    this.messagesByHash.set(hash, { senderName: data.senderName, content: data.content });
+    if (this.messagesByHash.size > LIVE_BUFFER_CAP) {
+      this.messagesByHash.delete(this.messagesByHash.keys().next().value!);
+    }
+    this.scheduleNotify();
+  }
+
   private rebuildIndex(): void {
     this.hashIndex.clear();
     for (let i = 0; i < this.buffer.length; i++) {
@@ -104,7 +122,7 @@ class LivePacketStore {
 
   acknowledge(): void {
     this.acknowledgedCount = this.buffer.length;
-    this.snapshot = { buffer: this.buffer, acknowledgedCount: this.acknowledgedCount, observersByHash: this.observersByHash };
+    this.snapshot = { buffer: this.buffer, acknowledgedCount: this.acknowledgedCount, observersByHash: this.observersByHash, messagesByHash: this.messagesByHash };
     for (const l of this.listeners) l();
   }
 
@@ -116,8 +134,9 @@ class LivePacketStore {
     this.buffer = [];
     this.hashIndex.clear();
     this.observersByHash.clear();
+    this.messagesByHash = new Map();
     this.acknowledgedCount = 0;
-    this.snapshot = { buffer: [], acknowledgedCount: 0, observersByHash: new Map() };
+    this.snapshot = { buffer: [], acknowledgedCount: 0, observersByHash: new Map(), messagesByHash: this.messagesByHash };
   }
 }
 
@@ -138,7 +157,7 @@ export function usePackets(frozen: boolean = false, serverFilter: PacketServerFi
     setLaggedCount(0);
   }
 
-  const { buffer: liveBuffer, acknowledgedCount, observersByHash } = useSyncExternalStore(
+  const { buffer: liveBuffer, acknowledgedCount, observersByHash, messagesByHash } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
   );
@@ -184,6 +203,8 @@ export function usePackets(frozen: boolean = false, serverFilter: PacketServerFi
     [store, iatas],
   );
 
+  const handleChannelMessage = useCallback((data: ChannelMessage) => store.enrich(data), [store]);
+
   // Reset (drop to one fresh first page) instead of invalidate: an invalidate replays every cached
   // page sequentially — up to 20 requests per lag notice during a flood. The 2-element key matches
   // filtered variants by prefix, so those reset too.
@@ -226,9 +247,12 @@ export function usePackets(frozen: boolean = false, serverFilter: PacketServerFi
     enabled: !pending,
   });
 
-  const allPackets = useMemo(
-    () => dedup([...displayBuffer, ...flattenPages(history)]),
-    [displayBuffer, history],
+  const allPackets = useMemo<PacketListItem[]>(
+    () => dedup([...displayBuffer, ...flattenPages(history)]).map(packet => {
+      const message = messagesByHash.get(packet.packetHash.toLowerCase());
+      return message ? { ...packet, message } : packet;
+    }),
+    [displayBuffer, history, messagesByHash],
   );
 
   const observerOptions = useMemo(() => {
@@ -262,6 +286,7 @@ export function usePackets(frozen: boolean = false, serverFilter: PacketServerFi
     isError,
     observersByHash,
     handlePacketObservation,
+    handleChannelMessage,
     handleLagged,
     laggedCount,
     dismissLagged,

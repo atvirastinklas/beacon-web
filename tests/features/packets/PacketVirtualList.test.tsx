@@ -1,8 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { PacketVirtualList } from "../../../src/features/packets/PacketVirtualList";
 
-import type { PacketSummary } from "../../../src/types/api";
+import type { PacketListItem } from "../../../src/features/packets/types";
+
+const getPacketDetail = vi.fn();
+vi.mock("../../../src/api/client", () => ({ getPacketDetail: (...args: unknown[]) => getPacketDetail(...args) }));
+
+let queryClient: QueryClient;
+function render(ui: ReactNode) {
+  return rtlRender(ui, { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> });
+}
 
 // PacketExpansion fetches through usePacketDetail; stub it so the list renders without a query client.
 const usePacketDetail = vi.fn(() => ({ data: { packetHash: "AA11", header: { payloadType: 1 }, observations: [] } }));
@@ -49,7 +59,7 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
   },
 });
 
-const pkt = (hash: string): PacketSummary => ({
+const pkt = (hash: string): PacketListItem => ({
   packetHash: hash, payloadType: 1, payloadTypeName: "ADVERT",
   routeType: 1, routeTypeName: "FLOOD",
   firstHeardAt: 1700000000, lastHeardAt: 1700000000, observationCount: 1,
@@ -90,11 +100,45 @@ function setScrollMetrics(el: HTMLElement, { scrollHeight, clientHeight, scrollT
 }
 
 beforeEach(() => {
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  getPacketDetail.mockReset();
+  getPacketDetail.mockImplementation((hash: string) => Promise.resolve({
+    packetHash: hash, header: { payloadType: 5 },
+    parsedPayload: { type: "GROUP_TEXT", decrypted: { sender: "Test sender 📡", content: "Test" } },
+    observations: [],
+  }));
   observers.length = 0;
   usePacketDetail.mockReturnValue({ data: { packetHash: "AA11", header: { payloadType: 1 }, observations: [] } });
 });
 
 describe("PacketVirtualList expansion", () => {
+  it.each([false, true])("loads a collapsed historical message without expansion (mobile=%s)", async (mobile) => {
+    setMobile(mobile);
+    render(<PacketVirtualList packets={[{ ...pkt("ede4a65a"), payloadType: 5, payloadTypeName: "GRP_TXT" }]} expandedHash={null} {...makeHandlers()} />);
+    expect(await screen.findByText("Test sender 📡:")).toBeInTheDocument();
+    expect(screen.getByText("Test")).toBeInTheDocument();
+    expect(getPacketDetail).toHaveBeenCalledTimes(1);
+    setMobile(false);
+  });
+
+  it("does not fetch details for historical rows outside the viewport", async () => {
+    const packets = many(80).map(p => ({ ...p, payloadType: 5, payloadTypeName: "GRP_TXT" }));
+    render(<PacketVirtualList packets={packets} expandedHash={null} {...makeHandlers()} />);
+    await waitFor(() => expect(screen.getAllByText("Test").length).toBeGreaterThan(2));
+    expect(getPacketDetail.mock.calls.some(([hash]) => hash === "AA59")).toBe(false);
+  });
+
+  it("shows the decoded message already available in the analyzer's detail cache", () => {
+    queryClient.setQueryData(["packet-detail", "ede4a65a"], {
+      packetHash: "ede4a65a", header: { payloadType: 5 },
+      parsedPayload: { type: "GROUP_TEXT", decrypted: { sender: "Test sender 📡", content: "Test" } },
+      observations: [],
+    });
+    render(<PacketVirtualList packets={[{ ...pkt("ede4a65a"), payloadType: 5, payloadTypeName: "GRP_TXT" }]} expandedHash={null} {...makeHandlers()} />);
+    expect(screen.getByText("Test sender 📡:")).toBeInTheDocument();
+    expect(screen.getByText("Test")).toBeInTheDocument();
+  });
+
   it("mounts the expansion inside the measured wrapper", () => {
     render(<PacketVirtualList packets={[pkt("AA11")]} expandedHash="AA11" {...makeHandlers()} />);
 
@@ -290,6 +334,14 @@ function setMobile(matches: boolean) {
 describe("PacketVirtualList responsive row", () => {
   afterEach(() => {
     setMobile(false); // back to the desktop default so later tests in this file aren't affected
+  });
+
+  it.each([false, true])("preserves decoded messages through the virtual list (mobile=%s)", (mobile) => {
+    setMobile(mobile);
+    const packet = { ...pkt("AA11"), message: { senderName: "Alice", content: "Hello from the mesh" } };
+    render(<PacketVirtualList packets={[packet]} expandedHash={null} {...makeHandlers()} />);
+    expect(screen.getByText("Alice:")).toBeInTheDocument();
+    expect(screen.getByText("Hello from the mesh")).toBeInTheDocument();
   });
 
   it("renders the card row below md", () => {

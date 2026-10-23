@@ -8,7 +8,7 @@ import { usePacketFilters, matchesFilters, toServerFilter } from "./usePacketFil
 import { parsePathSearch } from "./path-search";
 import { useScopes } from "../../hooks/useScopes";
 import { useRegion } from "../../hooks/useRegion";
-import { useWsPacketHandler, useWsLaggedHandler } from "../../hooks/useWsHandlers";
+import { useWsPacketHandler, useWsLaggedHandler, useWsChannelMessageHandler } from "../../hooks/useWsHandlers";
 import { PacketVirtualList } from "./PacketVirtualList";
 import { FilterBar } from "../../components/FilterBar";
 import { LoadingPill } from "../../components/LoadingPill";
@@ -72,6 +72,7 @@ export function PacketList({ wsManager, onAnalyze, onViewPath, selectedObservati
     isError,
     observersByHash,
     handlePacketObservation,
+    handleChannelMessage,
     handleLagged,
     laggedCount,
     dismissLagged,
@@ -120,6 +121,7 @@ export function PacketList({ wsManager, onAnalyze, onViewPath, selectedObservati
   }, [handlePacketObservation, expandedHash, queryClient]);
 
   useWsPacketHandler(wsManager, handleObservation);
+  useWsChannelMessageHandler(wsManager, handleChannelMessage);
   useWsLaggedHandler(wsManager, handleLagged);
 
   const bannerCount = isScrolledAway ? newPacketCount : 0;

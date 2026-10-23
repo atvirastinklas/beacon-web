@@ -21,6 +21,7 @@ const basePackets = () => ({
   isError: false,
   observersByHash: new Map(),
   handlePacketObservation: () => {},
+  handleChannelMessage: () => {},
   handleLagged: () => {},
   laggedCount: 0,
   dismissLagged: () => {},
@@ -49,6 +50,7 @@ vi.mock("../../../src/hooks/useWsHandlers", () => ({
     packetHandler = handler;
   },
   useWsLaggedHandler: () => {},
+  useWsChannelMessageHandler: () => {},
 }));
 
 // the virtual list needs ResizeObserver in jsdom; stub it down to the wiring under test

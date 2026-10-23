@@ -5,24 +5,28 @@ import { Badge } from "../../components/Badge";
 import { ScopeTag } from "../../components/ScopeTag";
 import { payloadTypeVariant } from "../../components/badge-utils";
 import { PAYLOAD_TYPE_NAMES, type PayloadTypeValue } from "../../types/enums";
-import type { PacketSummary } from "../../types/api";
+import type { PacketListItem } from "./types";
 import { GRID_TEMPLATE } from "./packet-grid";
 import { PacketEndpoints } from "./PacketEndpoints";
 
 interface PacketTableRowProps {
-  packet: PacketSummary;
+  packet: PacketListItem;
   expanded: boolean;
   isFresh?: boolean;
   onToggle: () => void;
 }
 
-// The observer lives in the expansion, which frees the wide column for the packet's endpoints.
+// The wide column prefers decoded messages, falling back to the packet's endpoints.
 export function PacketTableRow({ packet, expanded, isFresh, onToggle }: PacketTableRowProps) {
   const { t } = useTranslation();
   // ?? not ||, so a legitimate 0-hop direct packet still shows its count
   const pathLength = packet.latestObserver?.pathLength;
   const routeName = packet.routeTypeName || t("packetTable.unknown");
   const na = <span className="text-text-dim">{t("packetEndpoints.na")}</span>;
+  const message = packet.message?.content.trim() ? packet.message : undefined;
+  const source = packet.latestObserver?.resolvedSource;
+  const sourceNode = source?.confidence === "high" && source.nodes.length === 1 ? source.nodes[0] : undefined;
+  const sender = message?.senderName.trim() || (sourceNode && (sourceNode.name?.trim() || formatHex(sourceNode.id)));
 
   return (
     <div
@@ -60,7 +64,12 @@ export function PacketTableRow({ packet, expanded, isFresh, onToggle }: PacketTa
         <span className="font-mono text-text-muted">{pathLength?.hopCount ?? na}</span>
         <span className="font-mono text-text-muted">{pathLength?.hashSize ?? na}</span>
         <span className="min-w-0 overflow-hidden">
-          <PacketEndpoints packet={packet} />
+          {message ? (
+            <span className="flex min-w-0 items-baseline gap-1.5 font-mono">
+              {sender && <span className="max-w-[35%] shrink-0 truncate font-semibold text-text-normal" title={sender}>{sender}:</span>}
+              <span className="min-w-0 truncate text-text-muted" title={message.content}>{message.content}</span>
+            </span>
+          ) : <PacketEndpoints packet={packet} />}
         </span>
         <span className="font-mono font-bold text-primary tracking-wider">
           {packet.latestObserver?.iata ?? <span className="font-normal">{na}</span>}

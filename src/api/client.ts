@@ -109,8 +109,8 @@ export function getPackets(
   });
 }
 
-export function getPacketDetail(packetHash: string): Promise<PacketDetail> {
-  return request(`/packets/${packetHash}`);
+export function getPacketDetail(packetHash: string, signal?: AbortSignal): Promise<PacketDetail> {
+  return request(`/packets/${packetHash}`, undefined, signal);
 }
 
 export function getIatas(): Promise<IataCode[]> {

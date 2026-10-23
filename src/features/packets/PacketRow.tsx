@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { formatHex } from "../../lib/formatters";
 import { Timestamp } from "../../components/Timestamp";
-import type { PacketSummary } from "../../types/api";
+import type { PacketListItem } from "./types";
 import { Badge } from "../../components/Badge";
 import { Tooltip } from "../../components/Tooltip";
 import { payloadTypeVariant } from "../../components/badge-utils";
@@ -9,7 +9,7 @@ import { ScopeTag } from "../../components/ScopeTag";
 import { PAYLOAD_TYPE_NAMES, type PayloadTypeValue } from "../../types/enums";
 
 interface PacketRowProps {
-  packet: PacketSummary;
+  packet: PacketListItem;
   expanded: boolean;
   isFresh?: boolean;
   onToggle: () => void;
@@ -20,6 +20,10 @@ interface PacketRowProps {
 export function PacketRow({ packet, expanded, isFresh, onToggle }: PacketRowProps) {
   const { t } = useTranslation();
   const heardBy = t("packetRow.heardBy", { count: packet.observationCount });
+  const message = packet.message?.content.trim() ? packet.message : undefined;
+  const source = packet.latestObserver?.resolvedSource;
+  const sourceNode = source?.confidence === "high" && source.nodes.length === 1 ? source.nodes[0] : undefined;
+  const sender = message?.senderName.trim() || (sourceNode && (sourceNode.name?.trim() || formatHex(sourceNode.id)));
   return (
     <div
       className={`group bg-bg-surface border rounded-md px-3.5 py-2.5 cursor-pointer ${
@@ -57,7 +61,12 @@ export function PacketRow({ packet, expanded, isFresh, onToggle }: PacketRowProp
         </Tooltip>
       </div>
 
-      {packet.summary && <div className="mt-1 truncate font-mono text-[10px] text-text-muted tracking-wider" title={packet.summary}>{packet.summary}</div>}
+      {message ? (
+        <div className="mt-1 flex min-w-0 items-baseline gap-1.5 font-mono text-[10px]">
+          {sender && <span className="max-w-[35%] shrink-0 truncate font-semibold text-text-normal" title={sender}>{sender}:</span>}
+          <span className="min-w-0 truncate text-text-muted" title={message.content}>{message.content}</span>
+        </div>
+      ) : packet.summary && <div className="mt-1 truncate font-mono text-[10px] text-text-muted tracking-wider" title={packet.summary}>{packet.summary}</div>}
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-[11px] text-text-dim">
         <span className="font-mono text-[11px] text-text-muted uppercase tracking-wider bg-text-muted/8 px-1.5 py-px rounded-sm">

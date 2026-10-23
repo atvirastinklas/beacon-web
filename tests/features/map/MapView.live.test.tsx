@@ -6,14 +6,16 @@ import { MemoryRouter } from "react-router-dom";
 import type { WsManager } from "../../../src/api/ws-manager";
 import type { WsPacketObservation } from "../../../src/types/ws";
 import type { ChannelMessage } from "../../../src/features/channels/types";
+import type { PacketDetail } from "../../../src/types/api";
 
-const captures = vi.hoisted(() => ({ nodes: vi.fn(), analyze: vi.fn(), share: {} as Record<string, string | null>, mobile: false, regionKey: "*", iatas: undefined as string[] | undefined, resolved: true }));
+const captures = vi.hoisted(() => ({ nodes: vi.fn(), analyze: vi.fn(), paths: vi.fn(), share: {} as Record<string, string | null>, mobile: false, regionKey: "*", iatas: undefined as string[] | undefined, resolved: true }));
 vi.mock("../../../src/hooks/useMediaQuery", async importOriginal => ({
   ...await importOriginal<typeof import("../../../src/hooks/useMediaQuery")>(), useIsMobile: () => captures.mobile,
 }));
 vi.mock("../../../src/features/map/useMapNodes", () => ({ useMapNodes: captures.nodes }));
 vi.mock("../../../src/features/map/useMapLibre", () => ({ useMapLibre: () => ({ containerRef: { current: null }, mapRef: { current: null }, isReady: false, error: null, nodeIconResolverRef: { current: null } }) }));
 vi.mock("../../../src/features/map/useMapPacketFlow", () => ({ useMapPacketFlow: vi.fn() }));
+vi.mock("../../../src/features/map/useMapSelectedPacketPaths", () => ({ useMapSelectedPacketPaths: captures.paths }));
 vi.mock("../../../src/features/map/useMapNeighbors", () => ({ useMapNeighbors: vi.fn() }));
 vi.mock("../../../src/features/map/useMapBorders", () => ({ useMapBorders: vi.fn() }));
 vi.mock("../../../src/features/map/useMapBordersData", () => ({ useMapBordersData: () => [] }));
@@ -32,7 +34,7 @@ vi.mock("../../../src/features/map/MapSettingsPanel", () => ({ MapSettingsPanel:
 </> }));
 import { MapView } from "../../../src/features/map/MapView";
 
-function mount(url = "/?tab=Map") {
+function mount(url = "/?tab=Map", selectedPacketDetail: PacketDetail | null = null) {
   const handlers = new Set<(data: WsPacketObservation["data"]) => void>();
   const messages = new Set<(data: ChannelMessage) => void>();
   const source = {
@@ -49,7 +51,7 @@ function mount(url = "/?tab=Map") {
   };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const root = (show = true) => <QueryClientProvider client={client}>
-    <MemoryRouter initialEntries={[url]}>{show && <MapView wsManager={source as unknown as WsManager} selectedNodeId={null} onSelectNode={vi.fn()} onAnalyzePacket={captures.analyze} />}</MemoryRouter>
+    <MemoryRouter initialEntries={[url]}>{show && <MapView wsManager={source as unknown as WsManager} selectedNodeId={null} onSelectNode={vi.fn()} onAnalyzePacket={captures.analyze} selectedPacketDetail={selectedPacketDetail} />}</MemoryRouter>
   </QueryClientProvider>;
   const view = render(root());
   return { ...view, source, handlers, messages, redraw: (show = true) => view.rerender(root(show)), emit: (data: WsPacketObservation["data"]) => act(() => { for (const handler of handlers) handler(data); }), emitMessage: (data: ChannelMessage) => act(() => { for (const handler of messages) handler(data); }) };
@@ -96,6 +98,28 @@ describe("Live Map clustering", () => {
 });
 
 describe("Map packet-log integration", () => {
+  it("shows selected packet paths only in resolved desktop Live mode and restores them after Live is re-enabled", () => {
+    const detail: PacketDetail = {
+      packetHash: "selected", header: { raw: "11", routeType: 1, routeTypeName: "FLOOD", payloadType: 4, payloadTypeName: "ADVERT", payloadVersion: 0 },
+      rawPayload: "", decrypted: false, firstHeardAt: 1, lastHeardAt: 1, firstToLastMs: 0, observationCount: 0, observations: [],
+    };
+    const view = mount("/?tab=Map&flow=on", detail);
+    expect(captures.paths.mock.lastCall?.[2]).toBe(detail);
+    fireEvent.click(screen.getByRole("button", { name: "Stop live map packet flow" }));
+    expect(captures.paths.mock.lastCall?.[2]).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Play live map packet flow" }));
+    expect(captures.paths.mock.lastCall?.[2]).toBe(detail);
+    captures.resolved = false;
+    view.redraw();
+    expect(captures.paths.mock.lastCall?.[2]).toBeNull();
+    captures.resolved = true;
+    view.redraw();
+    expect(captures.paths.mock.lastCall?.[2]).toBe(detail);
+    captures.mobile = true;
+    view.redraw();
+    expect(captures.paths.mock.lastCall?.[2]).toBeNull();
+  });
+
   it("joins decoded group content from the existing message stream without losing packet identity or sightings", async () => {
     const view = mount("/?tab=Map&flow=on");
     const packet = observation("opaque fallback");

@@ -183,6 +183,8 @@ function AppInner() {
   const handleViewPath = useCallback((detail: PacketDetail, key?: string) => openPanel({ kind: "path", detail, selectedKey: key }), [openPanel]);
   const [pathLink] = useState(() => ({ path: searchParams.get("path"), hash: searchParams.get("hash") }));
   const { data: analyzerDetail, isLoading: analyzerLoading } = usePacketDetail(analyzerHash);
+  const selectedMapPacketDetail = analyzerHash && analyzerDetail?.packetHash.toLowerCase() === analyzerHash.toLowerCase()
+    ? analyzerDetail : null;
 
   const closePanel = (index: number) => {
     setPanels(previous => previous.slice(0, index));
@@ -281,7 +283,16 @@ function AppInner() {
   const clearSelection = useCallback(() => {
     setSelectedNodeId(null);
     setPanels([]);
-  }, [setSelectedNodeId, setPanels]);
+    if (activeTab === "Map") {
+      setSelectedObservationId(null);
+      setSearchParams(previous => {
+        const next = new URLSearchParams(previous);
+        next.delete("analyze");
+        next.delete("observation");
+        return next;
+      }, { replace: true });
+    }
+  }, [activeTab, setSelectedNodeId, setPanels, setSearchParams]);
 
   // Closing a detail panel drops its deep-link param so a reload can't reopen it (mirrors the packet
   // analyzer's ?analyze cleanup). Selecting a different node/observer doesn't touch the URL — the panel's
@@ -343,7 +354,7 @@ function AppInner() {
     Traces: <TraceList onAnalyze={hash => { if (hash) viewPacket(hash); }} onViewNode={viewNode} />,
     Channels: <ChannelList wsManager={wsManager} onAnalyze={handleAnalyze} />,
     Analytics: <StatsOverview onViewNode={viewNode} />,
-    Map: <MapView wsManager={wsManager} selectedNodeId={selectedNodeId} onSelectNode={handleSelectMapNode} onAnalyzePacket={handleAnalyzeMapPacket} />,
+    Map: <MapView wsManager={wsManager} selectedNodeId={selectedNodeId} onSelectNode={handleSelectMapNode} onAnalyzePacket={handleAnalyzeMapPacket} selectedPacketDetail={selectedMapPacketDetail} />,
   };
 
   const showAnalyzer = analyzerHash && activeTab !== "Analytics" && (activeTab !== "Map" || !isMobile);

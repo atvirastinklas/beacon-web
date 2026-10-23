@@ -9,6 +9,7 @@ import { useMapNeighbors } from "./useMapNeighbors";
 import { useMapBorders } from "./useMapBorders";
 import { useMapBordersData } from "./useMapBordersData";
 import { useMapPacketFlow } from "./useMapPacketFlow";
+import { useMapSelectedPacketPaths } from "./useMapSelectedPacketPaths";
 import { PacketFlowButton } from "./PacketFlowButton";
 import { LivePacketLogPanel } from "./LivePacketLogPanel";
 import { useLivePacketLog } from "./useLivePacketLog";
@@ -30,7 +31,7 @@ import { getIatas, getNodeNeighbors } from "../../api/client";
 import { upsertNodePages } from "../nodes/node-updates";
 import type { WsManager } from "../../api/ws-manager";
 import type { NodeSummary } from "../nodes/types";
-import type { CursorPage } from "../../types/api";
+import type { CursorPage, PacketDetail } from "../../types/api";
 import type { WsNodeUpdate } from "../../types/ws";
 
 const EMPTY_EDGES: FeatureCollection<LineString, NeighborEdgeProps> = { type: "FeatureCollection", features: [] };
@@ -41,9 +42,10 @@ interface MapViewProps {
   selectedNodeId: string | null;
   onSelectNode: (id: string) => void;
   onAnalyzePacket: (hash: string) => void;
+  selectedPacketDetail?: PacketDetail | null;
 }
 
-export function MapView({ wsManager, selectedNodeId, onSelectNode, onAnalyzePacket }: MapViewProps) {
+export function MapView({ wsManager, selectedNodeId, onSelectNode, onAnalyzePacket, selectedPacketDetail = null }: MapViewProps) {
   const { t } = useTranslation();
   // Deep-link params, read once at mount (like the region's ?iata seed). Each setting below is seeded
   // URL -> localStorage -> default; the URL wins for this session but is never written back to
@@ -226,6 +228,7 @@ export function MapView({ wsManager, selectedNodeId, onSelectNode, onAnalyzePack
   useMapNeighbors(mapRef, isReady, neighborEdges, themeKey);
   useMapBorders(mapRef, isReady, borderData, themeKey);
   useMapPacketFlow(mapRef, isReady, packetFlow, wsManager, themeKey, regionKey, geojson);
+  useMapSelectedPacketPaths(mapRef, isReady, packetFlow && !isMobile && !regionPending ? selectedPacketDetail : null, themeKey);
 
   return (
     <div className="relative flex flex-1 min-h-0">

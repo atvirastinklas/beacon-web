@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { App } from "../src/App";
+import { useRegionSelection } from "../src/hooks/useRegion";
 
-const state = vi.hoisted(() => ({ mobile: false, mapMounts: 0 }));
+function RegionChanger() {
+  const { setSelection } = useRegionSelection();
+  return <button onClick={() => setSelection({ regions: [], iatas: ["KUN"] })}>Change test region</button>;
+}
+
+const state = vi.hoisted(() => ({ mobile: false, mapMounts: 0, staleDetailHash: null as string | null }));
 vi.mock("../src/hooks/useMediaQuery", async importOriginal => ({
   ...await importOriginal<typeof import("../src/hooks/useMediaQuery")>(),
   useIsMobile: () => state.mobile,
@@ -22,15 +28,17 @@ vi.mock("../src/components/AppShell", () => ({
     <output data-testid="active-tab">{activeTab}</output>
     <button onClick={() => onTabChange("Map")}>Map tab</button>
     <button onClick={() => onTabChange("Packets")}>Packets tab</button>
+    <RegionChanger />
     {children}
   </>,
 }));
-vi.mock("../src/features/map/MapView", () => ({ MapView: ({ onAnalyzePacket, onSelectNode }: {
+vi.mock("../src/features/map/MapView", () => ({ MapView: ({ onAnalyzePacket, onSelectNode, selectedPacketDetail }: {
   onAnalyzePacket: (hash: string) => void; onSelectNode: (id: string) => void;
+  selectedPacketDetail?: { packetHash: string } | null;
 }) => {
-  const [mount] = useState(() => ++state.mapMounts);
+  useEffect(() => { state.mapMounts++; }, []);
   return <section aria-label="Map view">
-    <output data-testid="map-mount">{mount}</output>
+    <output data-testid="selected-path-packet">{selectedPacketDetail?.packetHash ?? "none"}</output>
     <button onClick={() => onAnalyzePacket("aa11")}>Live packet A</button>
     <button onClick={() => onAnalyzePacket("bb22")}>Live packet B</button>
     <button onClick={() => onSelectNode("new-node")}>Visible map node</button>
@@ -40,7 +48,7 @@ vi.mock("../src/features/packets/PacketList", () => ({ PacketList: () => <p>Pack
 vi.mock("../src/features/nodes/NodeDetailPanel", () => ({ NodeDetailPanel: ({ nodeId }: { nodeId: string }) => <section aria-label={`Node ${nodeId}`} /> }));
 vi.mock("../src/features/InvestigationPanels", () => ({ InvestigationPanel: () => <section role="dialog" aria-label="Path investigation" /> }));
 vi.mock("../src/features/packets/usePacketDetail", () => ({
-  usePacketDetail: (hash: string | null) => ({ data: hash ? { packetHash: hash, observations: [], header: { payloadType: 4 } } : undefined, isLoading: false }),
+  usePacketDetail: (hash: string | null) => ({ data: hash ? { packetHash: state.staleDetailHash ?? hash, observations: [], header: { payloadType: 4 } } : undefined, isLoading: false }),
 }));
 vi.mock("../src/features/packets/PacketAnalyzerDrawer", () => ({ PacketAnalyzerDrawer: ({ detail, selectedObservationId, onSelectObservation, onClose }: {
   detail?: { packetHash: string }; selectedObservationId: number | null; onSelectObservation: (id: number) => void; onClose: () => void;
@@ -52,7 +60,7 @@ vi.mock("../src/features/packets/PacketAnalyzerDrawer", () => ({ PacketAnalyzerD
 </aside> }));
 
 const params = () => new URLSearchParams(window.location.search);
-beforeEach(() => { state.mobile = false; state.mapMounts = 0; });
+beforeEach(() => { state.mobile = false; state.mapMounts = 0; state.staleDetailHash = null; });
 
 describe("live Map packet sidebar", () => {
   it("opens the existing sidebar without leaving/remounting Map or changing its view parameters", async () => {
@@ -60,6 +68,7 @@ describe("live Map packet sidebar", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Live packet A" }));
     expect(screen.getByTestId("packet-analyzer-drawer")).toHaveTextContent("aa11");
+    expect(screen.getByTestId("selected-path-packet")).toHaveTextContent("aa11");
     expect(screen.getByTestId("active-tab")).toHaveTextContent("Map");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(params().get("analyze")).toBe("1");
@@ -68,8 +77,10 @@ describe("live Map packet sidebar", () => {
     }
     fireEvent.click(screen.getByRole("button", { name: "Live packet B" }));
     expect(screen.getByTestId("packet-analyzer-drawer")).toHaveTextContent("bb22");
+    expect(screen.getByTestId("selected-path-packet")).toHaveTextContent("bb22");
     fireEvent.click(screen.getByRole("button", { name: "Close packet sidebar" }));
     expect(screen.queryByTestId("packet-analyzer-drawer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("selected-path-packet")).toHaveTextContent("none");
     expect(params().get("tab")).toBe("Map");
     expect(params().get("flow")).toBe("on");
     expect(state.mapMounts).toBe(1);
@@ -98,6 +109,40 @@ describe("live Map packet sidebar", () => {
     expect(screen.queryByTestId("packet-analyzer-drawer")).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Node new-node" })).toBeInTheDocument();
     expect(params().has("analyze")).toBe(false);
+    expect(screen.getByTestId("selected-path-packet")).toHaveTextContent("none");
+  });
+
+  it("clears the selected Map packet on a real region change, but preserves an initial deep link", async () => {
+    window.history.replaceState({}, "", "/?tab=Map&flow=on&hash=aa11&analyze=1&iata=VNO");
+    render(<App />);
+    await screen.findByTestId("packet-analyzer-drawer");
+    expect(screen.getByTestId("selected-path-packet")).toHaveTextContent("aa11");
+    fireEvent.click(screen.getByRole("button", { name: "Change test region" }));
+    expect(screen.queryByTestId("packet-analyzer-drawer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("selected-path-packet")).toHaveTextContent("none");
+    expect(params().has("analyze")).toBe(false);
+  });
+
+  it("never supplies a previous packet's paths while the newly selected packet is loading", async () => {
+    window.history.replaceState({}, "", "/?tab=Map&flow=on");
+    const view = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Live packet A" }));
+    expect(screen.getByTestId("selected-path-packet")).toHaveTextContent("aa11");
+    state.staleDetailHash = "AA11";
+    fireEvent.click(screen.getByRole("button", { name: "Live packet B" }));
+    expect(screen.getByTestId("selected-path-packet")).toHaveTextContent("none");
+    state.staleDetailHash = "BB22";
+    view.rerender(<App />);
+    expect(screen.getByTestId("selected-path-packet")).toHaveTextContent("BB22");
+  });
+
+  it("does not close a different tab's analyzer when its region changes", async () => {
+    window.history.replaceState({}, "", "/?tab=Packets&hash=aa11&analyze=1&iata=VNO");
+    render(<App />);
+    await screen.findByTestId("packet-analyzer-drawer");
+    fireEvent.click(screen.getByRole("button", { name: "Change test region" }));
+    expect(screen.getByTestId("packet-analyzer-drawer")).toHaveTextContent("aa11");
+    expect(params().get("analyze")).toBe("1");
   });
 
   it("doesn't carry a previous tab's analyzer into Map, but preserves a sidebar on a no-op Map tab click", async () => {

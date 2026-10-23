@@ -1,3 +1,4 @@
+import "../../components/ui/mock-number-flow";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -102,9 +103,10 @@ describe("Map packet-log integration", () => {
     const message = { id: 1, packetHash: packet.packetHash, channelHash: "public", senderName: "Alice", content: "Hello from the mesh", sentAt: Date.now() };
     view.emitMessage(message);
     view.emit(packet);
-    const row = await screen.findByRole("button", { name: "Packet details: GRP_TXT · Hello from the mesh · Sender: Alice" });
+    const row = await screen.findByRole("button", { name: "Packet details: GRP_TXT · Sender: Alice · Hello from the mesh" });
     expect(row).toHaveTextContent("Hello from the mesh");
     expect(row).toHaveTextContent("Alice");
+    expect(row.textContent!.indexOf("Alice")).toBeLessThan(row.textContent!.indexOf("Hello from the mesh"));
     expect(row).not.toHaveTextContent("Sender:");
     view.emit(packet);
     expect(await screen.findByLabelText("2 sightings in this feed")).toBeVisible();
@@ -163,9 +165,9 @@ describe("Map packet-log integration", () => {
     view.emit(repeat);
     await screen.findByLabelText("2 sightings in this feed");
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("Second packet");
-    expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("First packet");
-    expect(screen.getAllByRole("listitem")[1].querySelector("time")).toHaveAttribute("datetime", new Date(first.observation.heardAt).toISOString());
+    expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("First packet");
+    expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("Second packet");
+    expect(screen.getAllByRole("listitem")[0].querySelector("time")).toHaveAttribute("datetime", new Date(first.observation.heardAt).toISOString());
     fireEvent.click(screen.getByRole("button", { name: /Packet details: ADVERT · First packet/ }));
     expect(captures.analyze).toHaveBeenCalledExactlyOnceWith("First packet");
     expect(screen.getByLabelText("2 sightings in this feed")).toHaveTextContent("×2");
@@ -209,7 +211,7 @@ describe("Map packet-log integration", () => {
     expect(view.source.onChannelMessage).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps collecting while collapsed, then shows newest observations first", async () => {
+  it("keeps collecting while collapsed, then shows observations chronologically toward the tail", async () => {
     const view = mount("/?tab=Map&flow=on");
     fireEvent.click(screen.getByRole("button", { name: "Live packets" }));
     view.emit(observation("Older observation"));
@@ -218,8 +220,8 @@ describe("Map packet-log integration", () => {
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
     expect(view.handlers.size).toBe(1);
     fireEvent.click(screen.getByRole("button", { name: "Live packets" }));
-    expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("Newest observation");
-    expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("Older observation");
+    expect(screen.getAllByRole("listitem")[0]).toHaveTextContent("Older observation");
+    expect(screen.getAllByRole("listitem")[1]).toHaveTextContent("Newest observation");
   });
 
   it("unmounts and unsubscribes on mobile or leaving the map, then starts a fresh desktop session", async () => {

@@ -16,7 +16,7 @@ const visibleNode = (id: string, lng: number, lat: number): FeatureCollection<Po
   type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [lng, lat] }, properties: { id, name: id, nodeTypeName: "Repeater", isObserver: false } }],
 });
 
-function setup() {
+function setup(nodeSourceId = "nodes", ownsResolution = true) {
   const sources = new Map<string, { data: FeatureCollection; setData: ReturnType<typeof vi.fn> }>();
   const layers = new Map<string, unknown>();
   const map = {
@@ -40,7 +40,8 @@ function setup() {
     onPacketObservation: vi.fn((callback: typeof handler) => { handler = callback; return unsubscribe; }),
   };
   const ref = { current: map as unknown as MapLibreMap };
-  const view = renderHook(({ enabled, region, nodes, theme }) => useMapPacketFlow(ref, true, enabled, manager as unknown as WsManager, theme, region, nodes), { initialProps: { enabled: true, region: "all", nodes: noNodes, theme: "dark" } });
+  const source = ownsResolution ? manager as unknown as WsManager : { onPacketObservation: manager.onPacketObservation } as Pick<WsManager, "onPacketObservation">;
+  const view = renderHook(({ enabled, region, nodes, theme }) => useMapPacketFlow(ref, true, enabled, source, theme, region, nodes, nodeSourceId), { initialProps: { enabled: true, region: "all", nodes: noNodes, theme: "dark" } });
   const emit = (source: ResolvedHop | null, path: ResolvedHop[] | null, destination: ResolvedHop | null) => {
     act(() => { handler?.({ packetHash: "test-packet", packet: { payloadType: 2, payloadTypeName: "Text", routeType: 1, routeTypeName: "Flood", isFirstObservation: true, observationCount: 1 }, observation: { observerId: "observer", observerName: "Observer", iata: "VNO", heardAt: 1, rssi: -70, snr: 8, sourceBroker: "test", resolvedSource: source, resolvedPath: path, resolvedDestination: destination } }); });
   };
@@ -71,6 +72,49 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("live packet ghost stops", () => {
+  it("does not rewrite empty anchors while visible nodes' packet dots keep moving", () => {
+    const view = setup();
+    const nodes = { ...noNodes, features: [...visibleNode("A", 0, 50).features, ...visibleNode("B", 1, 51).features] };
+    view.rerender({ enabled: true, region: "all", nodes, theme: "dark" });
+    const anchors = view.sources.get("packet-flow-anchors")!;
+    anchors.setData.mockClear();
+    view.emit(hop("A", 0, 50), [], hop("B", 1, 51));
+    tick(0); tick(PACKET_FLOW_HOP_MS / 2); tick(PACKET_FLOW_HOP_MS);
+    expect(anchors.setData).not.toHaveBeenCalled();
+    expect(pointCoordinates(view.sources.get("packet-flow-dot")!.data)).toEqual([[1, 51]]);
+    view.unmount();
+  });
+
+  it("rewrites supplemental anchors only when their content or fading opacity changes", () => {
+    const view = setup();
+    view.emit(hop("A", 0, 50), [], hop("B", 1, 51));
+    const anchors = view.sources.get("packet-flow-anchors")!;
+    const writes = anchors.setData.mock.calls.length;
+    tick(0); tick(PACKET_FLOW_HOP_MS / 2); tick(PACKET_FLOW_HOP_MS);
+    expect(anchors.setData).toHaveBeenCalledTimes(writes);
+    tick(PACKET_FLOW_HOP_MS + 100);
+    expect(anchors.setData).toHaveBeenCalledTimes(writes + 1);
+    expect(anchors.data.features[0]!.properties?.a).toBeLessThan(1);
+    view.rerender({ enabled: true, region: "all", nodes: visibleNode("B", 1, 51), theme: "dark" });
+    expect(anchors.data.features.map(feature => feature.properties?.nodeId)).toEqual(["A"]);
+    tick(PACKET_FLOW_HOP_MS + PACKET_FLOW_TRAIL_FADE_MS + 1);
+    expect(anchors.data.features).toEqual([]);
+    view.unmount();
+  });
+
+  it("renders published Meshlog observations against its own node source without owning socket configuration", () => {
+    const view = setup("meshlog-nodes", false);
+    view.emit(hop("A", 0, 50), [], hop("B", 1, 51));
+    tick(PACKET_FLOW_HOP_MS);
+    expect(pointCoordinates(view.sources.get("packet-flow-dot")!.data)).toEqual([[1, 51]]);
+    expect(view.map.setFeatureState).toHaveBeenCalledWith({ source: "meshlog-nodes", id: "B" }, { glow: 1 });
+    view.rerender({ enabled: false, region: "all", nodes: noNodes, theme: "dark" });
+    expect(view.sources.get("packet-flow-dot")!.data.features).toEqual([]);
+    view.unmount();
+    expect(view.manager.setResolvePath).not.toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+  });
+
   it("animates A -> ghost B -> ghost C -> D, highlights only real IDs and clears ghosts at expiry", () => {
     const view = setup();
     view.emit(hop("A", 0, 50), [unknown, unknown], hop("D", 3, 53));

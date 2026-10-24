@@ -624,6 +624,53 @@
       "settings": "Nustatymai",
       "github": "GitHub"
     },
+    "meshlog": {
+      "backToBeacon": "Grįžti į Beacon",
+      "settings": {
+        "expiredAfterDays": "Pasenęs po (dienų)",
+        "veryExpiredAfterDays": "Labai pasenęs po (dienų)",
+        "hideAfterDays": "Slėpti po (dienų)",
+        "timeWarnings": "Rodyti laiko įspėjimus",
+        "clockWarningAfterMinutes": "Laikrodžio įspėjimas po (minučių)",
+        "locationWarnings": "Rodyti vietos įspėjimus",
+        "advertInterval": "Rodyti skelbimo intervalą",
+        "telemetry": "Rodyti telemetriją",
+        "advertUnavailable": "Nepasiekiama: skelbimų intervalai nepateikiami.",
+        "telemetryUnavailable": "Nepasiekiama: telemetrijos duomenys nepateikiami.",
+        "ageHelp": "Amžius skaičiuojamas nuo paskutinio užfiksavimo. Slėpimas taikomas mazgų sąrašui ir žemėlapiui, bet ne paketams ar prisegtiems keliams.",
+        "thresholdHelp": "Ribos išlaikomos šia tvarka: pasenęs ≤ labai pasenęs ≤ paslėptas.",
+        "positiveInteger": "Įveskite sveikąjį skaičių, didesnį už nulį.",
+        "expired": "Pasenęs",
+        "veryExpired": "Labai pasenęs"
+      },
+      "paths": {
+        "pinned": "Prisegti keliai: {{count}}",
+        "fit": "Aprėpti pasirinktus kelius",
+        "clear": "Išvalyti kelius"
+      },
+      "workspace": {
+        "contacts": "Kontaktai",
+        "panels": "Darbo srities skydeliai",
+        "resize": "Žemėlapis / skydelis"
+      },
+      "endpoints": {
+        "originator": "Siuntėjas",
+        "target": "Gavėjas"
+      },
+      "filters": {
+        "searchObservers": "Ieškoti stebėtojų",
+        "searchTypes": "Ieškoti tipų"
+      },
+      "channels": {
+        "select": "Pasirinkti kanalus",
+        "unverified": "Kanalas nežinomas",
+        "known": "Žinomi kanalai",
+        "unknown": "Nežinomi kanalai",
+        "search": "Ieškoti kanalų",
+        "selectionCount": "Pasirinkta {{selected}} / {{total}}",
+        "empty": "Kanalų kol kas nėra."
+      }
+    },
     "channels": {
       "noMatches": "Kanalų nerasta.",
       "loadError": "Nepavyko užkr kanalų.",

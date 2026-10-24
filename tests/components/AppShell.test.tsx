@@ -42,6 +42,24 @@ beforeEach(() => {
 });
 
 describe("AppShell", () => {
+  it("links to MeshLog without replacing Beacon branding or the active tab", () => {
+    vi.mocked(getIatas).mockResolvedValue([]);
+    const onTabChange = vi.fn();
+    renderShell(onTabChange);
+
+    const meshlog = screen.getByRole("link", { name: "MeshLog" });
+    expect(meshlog).toHaveAttribute("href", "/experimental/meshlog");
+    expect(meshlog).toHaveClass("border", "border-border", "bg-bg-raised");
+    expect(meshlog.querySelector("span")).toHaveAttribute("aria-hidden", "true");
+    expect(meshlog).not.toHaveAttribute("aria-selected");
+    expect(screen.queryByRole("tab", { name: "MeshLog" })).not.toBeInTheDocument();
+    act(() => meshlog.focus());
+    expect(meshlog).toHaveFocus();
+    expect(screen.getByText("BEACON", { exact: true })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab", { name: "Packets" })[0]).toHaveAttribute("aria-selected", "true");
+    expect(onTabChange).not.toHaveBeenCalled();
+  });
+
   it("switches navigation to Lithuanian while preserving tab identifiers and the active view", async () => {
     vi.mocked(getIatas).mockResolvedValue([]);
     const onTabChange = vi.fn();
@@ -304,6 +322,12 @@ describe("AppShell on a phone", () => {
     expect(screen.queryByRole("button", { name: /^Language:/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "GitHub" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const meshlog = screen.getByRole("link", { name: "MeshLog" });
+    expect(meshlog).toHaveAttribute("href", "/experimental/meshlog");
+    expect(meshlog).toHaveClass("flex", "items-center", "justify-between");
+    expect(meshlog.querySelector("span")).toHaveAttribute("aria-hidden", "true");
+    act(() => meshlog.focus());
+    expect(meshlog).toHaveFocus();
     expect(screen.getByRole("link", { name: "GitHub" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Lietuvių" }));
     await waitFor(() => expect(document.documentElement.lang).toBe("lt"));

@@ -25,6 +25,9 @@ import {
 
 const EMPTY_FC: FeatureCollection = { type: "FeatureCollection", features: [] };
 
+// A published live-only stream can share the renderer without owning socket configuration.
+export type PacketFlowSource = Pick<WsManager, "onPacketObservation"> & Partial<Pick<WsManager, "setResolvePath">>;
+
 // one packet riding its hop path once
 interface Flow {
   coords: [number, number][];
@@ -41,10 +44,11 @@ export function useMapPacketFlow(
   mapRef: React.RefObject<MapLibreMap | null>,
   isReady: boolean,
   enabled: boolean,
-  wsManager: WsManager,
+  wsManager: PacketFlowSource,
   themeKey: string,
   resetKey: string,
   visibleNodes: FeatureCollection<Point, NodeFeatureProps>,
+  nodeSourceId: string = NODES_SOURCE_ID,
 ) {
   const flowsRef = useRef<Flow[]>([]);
   const litRef = useRef<Set<string>>(new Set()); // node ids currently lit (feature-state glow set)
@@ -55,6 +59,17 @@ export function useMapPacketFlow(
 
   const updateAnchors = useCallback((now: number) => {
     const data = liveAnchorFeatures(flowsRef.current, visibleLocationsRef.current, now);
+    const previous = snapshotsRef.current[PACKET_FLOW_ANCHOR_SOURCE_ID];
+    // Most frames have no supplemental anchors, or anchors still at full opacity.
+    // Do not reparse identical GeoJSON in a worker just because the dot moved.
+    if (previous?.features.length === data.features.length && data.features.every((feature, index) => {
+      const prior = previous.features[index]!;
+      return prior.geometry.type === "Point" &&
+        prior.geometry.coordinates[0] === feature.geometry.coordinates[0] &&
+        prior.geometry.coordinates[1] === feature.geometry.coordinates[1] &&
+        prior.properties?.nodeId === feature.properties.nodeId &&
+        prior.properties?.name === feature.properties.name && prior.properties?.a === feature.properties.a;
+    })) return;
     snapshotsRef.current[PACKET_FLOW_ANCHOR_SOURCE_ID] = data;
     (mapRef.current?.getSource(PACKET_FLOW_ANCHOR_SOURCE_ID) as GeoJSONSource | undefined)?.setData(data);
   }, [mapRef]);
@@ -74,7 +89,7 @@ export function useMapPacketFlow(
     snapshotsRef.current = {};
     // guard the whole block: on a not-yet-ready or torn-down map, getSource/setFeatureState throw
     try {
-      for (const id of litRef.current) map?.removeFeatureState({ source: NODES_SOURCE_ID, id }, "glow");
+      for (const id of litRef.current) map?.removeFeatureState({ source: nodeSourceId, id }, "glow");
       (map?.getSource(PACKET_FLOW_TRAIL_SOURCE_ID) as GeoJSONSource | undefined)?.setData(EMPTY_FC);
       (map?.getSource(PACKET_FLOW_DOT_SOURCE_ID) as GeoJSONSource | undefined)?.setData(EMPTY_FC);
       (map?.getSource(PACKET_FLOW_GHOST_SOURCE_ID) as GeoJSONSource | undefined)?.setData(EMPTY_FC);
@@ -83,7 +98,7 @@ export function useMapPacketFlow(
       // map style not ready / already removed
     }
     litRef.current.clear();
-  }, []);
+  }, [nodeSourceId]);
 
   const startLoop = useCallback(() => {
     if (rafRef.current != null) return;
@@ -130,9 +145,9 @@ export function useMapPacketFlow(
 
       // apply node glows via feature-state; drop nodes that are no longer lit by any packet
       try {
-        for (const [id, g] of glowByNode) map?.setFeatureState({ source: NODES_SOURCE_ID, id }, { glow: g });
+        for (const [id, g] of glowByNode) map?.setFeatureState({ source: nodeSourceId, id }, { glow: g });
         for (const id of litRef.current) {
-          if (!glowByNode.has(id)) map?.removeFeatureState({ source: NODES_SOURCE_ID, id }, "glow");
+          if (!glowByNode.has(id)) map?.removeFeatureState({ source: nodeSourceId, id }, "glow");
         }
       } catch { /* node gone */ }
       litRef.current = new Set(glowByNode.keys());
@@ -148,7 +163,7 @@ export function useMapPacketFlow(
       rafRef.current = busy ? requestAnimationFrame(frame) : null;
     }
     rafRef.current = requestAnimationFrame(frame);
-  }, [mapRef, updateAnchors]);
+  }, [mapRef, nodeSourceId, updateAnchors]);
 
   // build the trail + dot layers (re-add after a style switch); the dot is orange with a white stroke
   // and a dark halo behind it, the trail a dashed line whose opacity is data-driven
@@ -224,8 +239,8 @@ export function useMapPacketFlow(
 
   // connection-wide resolvePath toggle: on while enabled, off otherwise
   useEffect(() => {
-    wsManager.setResolvePath(enabled);
-    return () => wsManager.setResolvePath(false);
+    wsManager.setResolvePath?.(enabled);
+    return () => wsManager.setResolvePath?.(false);
   }, [enabled, wsManager]);
 
   // Node styling and foreground activity are owned by useMapNodes; here we only feed it the

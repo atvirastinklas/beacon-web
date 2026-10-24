@@ -91,11 +91,27 @@ Additional services in the current source:
 - Node-detail telemetry: `telemetry.ite.lt`.
 - GitHub and configurable banner links are external navigation, not smoke targets.
 
-The initial tests use only the Packets and Nodes list views, not maps, node details,
+The Beacon shell tests use only the Packets and Nodes list views, not maps, node details,
 external links, login, or administrative actions. They still initiate REST reads
 and WebSocket live subscriptions, so backend approval is required. The current
 client has no login, MFA, auth provider, or protected route. If a deployment adds
 gateway/SSO authentication or redirects, stop and approve that target separately.
+
+The separate `meshlog.spec.ts` test visits the live `/experimental/meshlog` page.
+It injects test-only responses at the REST/WebSocket boundary; no sample data is
+bundled into the application. It permits the frontend and `tiles.openfreemap.org`,
+blocks other external requests, and checks history/live merging, history retry,
+public-key hashes, raw hop codes, observer metadata tooltips, searchable grouped
+channel selection (including large directories and independent Known/Unknown bulk toggles),
+compact observer/packet-type/scope/node-type comboboxes, protocol-type badges, muted endpoint
+identifiers, the shared live badge, header language switching and saved language,
+packet/observer path controls, live flow surviving pinned-path clearing, inline direct
+reports, consistent unavailable-control spacing, short-ID node tooltips and real node
+details, shared role assets, the initial 30-packet request,
+desktop layout, the adjustable mobile map with tabbed packet/contact panels, and
+large virtualized lists retaining expansions and pins across scrolling and tab changes,
+supported contact-age settings, and node-circle contrast on light and dark maps.
+It does not contact a Beacon backend, but map-tile access still needs target approval.
 
 ### Local overrides
 

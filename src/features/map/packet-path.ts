@@ -49,14 +49,21 @@ function pathPoints(hops: ResolvedHop[]): PathPoint[] {
   return out;
 }
 
-function observerLabel(obs: Observation): string {
+type PathObservation = Pick<Observation, "observerId" | "observerName" | "propagationTimeMs" | "resolvedSource" | "resolvedPath" | "resolvedDestination">;
+export interface PacketPathInput {
+  header: Pick<PacketDetail["header"], "payloadType">;
+  observations: PathObservation[];
+  resolvedRoute?: ResolvedHop[];
+}
+
+function observerLabel(obs: PathObservation): string {
   return obs.observerName ?? obs.observerId.slice(0, 8);
 }
 
 // One drawable path per observation (and the trace route for TRACE packets) that resolves to >=2
 // located hops, keyed by observerId and sorted fastest-first. Colors are assigned after sorting so
 // the selector swatch matches the drawn line.
-export function buildPacketPaths(detail: PacketDetail): PacketPath[] {
+export function buildPacketPaths(detail: PacketPathInput): PacketPath[] {
   const raw: Omit<PacketPath, "color">[] = [];
   const add = (key: string, label: string, propagationMs: number | undefined, points: PathPoint[]) => {
     if (points.length < 2) return;

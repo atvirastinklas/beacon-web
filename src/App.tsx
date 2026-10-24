@@ -4,15 +4,11 @@ import { useTranslation } from "react-i18next";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RegionProvider, useRegion, useRegionSelection } from "./hooks/useRegion";
 import {
-  ALL_REGIONS,
-  isAllRegions,
-  parseSelection,
   selectionToParams,
   resolveIatas,
-  deserializeSelection,
-  type RegionSelection,
 } from "./hooks/region-selection";
 import { ThemeProvider } from "./hooks/useTheme";
+import { computeInitialSelection } from "./lib/initial-region-selection";
 import { useIsMobile } from "./hooks/useMediaQuery";
 import { AppShell } from "./components/AppShell";
 import { SplashScreen } from "./components/SplashScreen";
@@ -36,6 +32,7 @@ import type { PacketDetail } from "./types/api";
 // Map is the only heavy tab (maplibre-gl is ~1MB), so lazy-load it — its chunk is fetched the
 // first time someone opens the Map tab instead of bloating the initial bundle.
 const MapView = lazy(() => import("./features/map/MapView").then((m) => ({ default: m.MapView })));
+const MeshlogRoute = lazy(() => import("./features/meshlog/MeshlogRoute").then((m) => ({ default: m.MeshlogRoute })));
 
 // Stats pulls in ECharts (~150-200KB gz), so lazy-load it too — the chunk loads on first visit to Stats.
 const StatsOverview = lazy(() => import("./features/stats/StatsOverview").then((m) => ({ default: m.StatsOverview })));
@@ -54,18 +51,6 @@ const queryClient = new QueryClient({
 const wsManager = new WsManager(WS_URL);
 
 const WS_EVENTS = ["packetObservation", "channelMessage", "observerStatus", "nodeUpdate"];
-
-// Compute the initial region selection on first load: URL params win (shareable links), then the
-// persisted selection, then the pre-multi-select single-IATA key (migrated), else all regions.
-function computeInitialSelection(params: URLSearchParams): RegionSelection {
-  const fromUrl = parseSelection(params);
-  if (!isAllRegions(fromUrl)) return fromUrl;
-  const stored = deserializeSelection(localStorage.getItem("beacon-region-selection"));
-  if (!isAllRegions(stored)) return stored;
-  const legacy = localStorage.getItem("beacon-region");
-  if (legacy && legacy !== "*") return { regions: [], iatas: [legacy.toUpperCase()] };
-  return ALL_REGIONS;
-}
 
 // null-render component -- easiest way to sync region changes into the WS manager
 
@@ -409,12 +394,21 @@ function AppInner() {
 export function App() {
   return (
     <BrowserRouter>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <SplashScreen />
-          <AppInner />
-        </ThemeProvider>
-      </QueryClientProvider>
+      <Routes>
+        <Route path="/experimental/meshlog" element={
+          <ThemeProvider>
+            <Suspense fallback={null}><MeshlogRoute /></Suspense>
+          </ThemeProvider>
+        } />
+        <Route path="*" element={
+          <QueryClientProvider client={queryClient}>
+            <ThemeProvider>
+              <SplashScreen />
+              <AppInner />
+            </ThemeProvider>
+          </QueryClientProvider>
+        } />
+      </Routes>
     </BrowserRouter>
   );
 }

@@ -16,53 +16,14 @@ import { BeaconWordmark } from "./BeaconWordmark";
 import { getIatas } from "../api/client";
 import { ENABLED_TABS, ENABLED_THEME_IDS, selectableThemes, APP_NAME, GITHUB_URL, BANNER } from "../lib/constants";
 import { InstanceBanner } from "./InstanceBanner";
+import { LiveBadge } from "./LiveBadge";
 import type { WsManager } from "../api/ws-manager";
 
 // header widgets: WS status, region picker, theme picker
 
-function LiveBadge({ wsManager, compact = false }: { wsManager: WsManager; compact?: boolean }) {
-  const { t } = useTranslation();
+function ShellLiveBadge({ wsManager, compact = false }: { wsManager: WsManager; compact?: boolean }) {
   const { status } = useWsStatus(wsManager);
-  const [staleStr, setStaleStr] = useState("");
-
-  useEffect(() => {
-    if (status !== "connecting") return;
-    function update() {
-      const staleSec = Math.floor((Date.now() - wsManager.getLastEventTimestamp()) / 1000);
-      setStaleStr(staleSec > 60 ? t("timestamp.unit.m", { count: Math.floor(staleSec / 60) }) : t("timestamp.unit.s", { count: staleSec }));
-    }
-    update();
-    const id = setInterval(update, 1000);
-    return () => clearInterval(id);
-  }, [status, wsManager, t]);
-
-  if (status === "connected") {
-    if (compact) return (
-      <span role="status" aria-label={t("connection.live")} title={t("connection.live")} className="flex h-6 w-6 items-center justify-center">
-        <span className="h-2 w-2 rounded-full bg-green animate-pulse" />
-      </span>
-    );
-    return (
-      <div className="flex items-center gap-1.5 font-mono text-[11px] text-green bg-green/8 border border-green/15 px-2 py-0.5 rounded-sm">
-        <span className="w-1.5 h-1.5 rounded-full bg-green animate-pulse" />
-        {t("connection.live")}
-      </div>
-    );
-  }
-
-  if (status === "connecting") {
-    return (
-      <div className="flex items-center gap-1.5 font-mono text-[11px] text-warn bg-warn/7 border border-warn/15 px-2 py-0.5 rounded-sm">
-        {t("connection.stale", { age: staleStr })}
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-1.5 font-mono text-[11px] text-danger bg-danger/8 border border-danger/15 px-2 py-0.5 rounded-sm">
-      {t("connection.offline")}
-    </div>
-  );
+  return <LiveBadge status={status} lastEventTimestamp={wsManager.getLastEventTimestamp()} compact={compact} />;
 }
 
 // Shown while the API is throttling us; the countdown tells users the blank tables are temporary.
@@ -404,6 +365,10 @@ function SettingsMenu() {
     >
       {(close) => (
         <>
+          <a href="/experimental/meshlog" className="flex items-center justify-between gap-3 border-b border-border-subtle px-3 py-3 font-mono text-xs text-text-normal hover:bg-text-normal/3 hover:text-text-bright focus-visible:bg-text-normal/3 transition-colors">
+            MeshLog
+            <span aria-hidden="true">→</span>
+          </a>
           <div className={MENU_GROUP}>{t("language.label")}</div>
           <LanguageOptions onPick={close} />
           <div className={`${MENU_GROUP} mt-1 border-t border-border-subtle`}>{t("theme.label")}</div>
@@ -441,20 +406,24 @@ export function AppShell({ activeTab, onTabChange, wsManager, children }: AppShe
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <RateLimitBadge />
-            <LiveBadge wsManager={wsManager} compact />
+            <ShellLiveBadge wsManager={wsManager} compact />
             <SettingsMenu />
           </div>
         </header>
       ) : (
         <header className="flex items-center gap-3 px-4 py-1.5 min-h-[42px] bg-bg-surface border-b border-border shrink-0">
           <BeaconWordmark iconSize={22} textClassName="text-sm truncate" className="min-w-0" />
+          <a href="/experimental/meshlog" className="inline-flex min-h-7 shrink-0 items-center gap-2 rounded border border-border bg-bg-raised px-2.5 py-1 font-mono text-xs text-text-normal hover:border-text-dim hover:text-text-bright focus-visible:border-primary focus-visible:text-text-bright transition-colors">
+            MeshLog
+            <span aria-hidden="true">→</span>
+          </a>
           <div className="ml-auto flex items-center gap-3">
             <RegionSelector />
             <ThemePicker />
             <LanguagePicker />
           </div>
           <div className="flex items-center gap-3">
-            <LiveBadge wsManager={wsManager} />
+            <ShellLiveBadge wsManager={wsManager} />
             <RateLimitBadge />
             <GitHubLink />
           </div>

@@ -586,6 +586,53 @@
       "settings": "Settings",
       "github": "GitHub"
     },
+    "meshlog": {
+      "backToBeacon": "Back to Beacon",
+      "settings": {
+        "expiredAfterDays": "Expired after (days)",
+        "veryExpiredAfterDays": "Very expired after (days)",
+        "hideAfterDays": "Hide after (days)",
+        "timeWarnings": "Show time warnings",
+        "clockWarningAfterMinutes": "Clock warning after (minutes)",
+        "locationWarnings": "Show location warnings",
+        "advertInterval": "Show advert interval",
+        "telemetry": "Show telemetry",
+        "advertUnavailable": "Unavailable: advert intervals are not provided.",
+        "telemetryUnavailable": "Unavailable: telemetry is not provided.",
+        "ageHelp": "Age is based on last seen. Hiding affects the node list and map, not packets or pinned paths.",
+        "thresholdHelp": "Thresholds are kept in order: expired ≤ very expired ≤ hidden.",
+        "positiveInteger": "Enter a whole number greater than zero.",
+        "expired": "Expired",
+        "veryExpired": "Very expired"
+      },
+      "paths": {
+        "pinned": "Pinned paths: {{count}}",
+        "fit": "Fit selected paths",
+        "clear": "Clear paths"
+      },
+      "workspace": {
+        "contacts": "Contacts",
+        "panels": "Workspace panels",
+        "resize": "Map / panel"
+      },
+      "endpoints": {
+        "originator": "Originator",
+        "target": "Target"
+      },
+      "filters": {
+        "searchObservers": "Search observers",
+        "searchTypes": "Search types"
+      },
+      "channels": {
+        "select": "Select channels",
+        "unverified": "Channel unknown",
+        "known": "Known channels",
+        "unknown": "Unknown channels",
+        "search": "Search channels",
+        "selectionCount": "{{selected}} / {{total}} selected",
+        "empty": "No channels available yet."
+      }
+    },
     "channels": {
       "noMatches": "No matching channels loaded.",
       "loadError": "Could not load channels.",

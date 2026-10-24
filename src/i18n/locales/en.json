@@ -94,6 +94,7 @@
       "close": "Close",
       "clear": "Clear",
       "none": "None",
+      "deselectAll": "None",
       "noMatches": "No matches",
       "filterPlaceholder": "Filter..."
     },

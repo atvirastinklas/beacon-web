@@ -5,6 +5,7 @@ build
 coverage
 docs
 tests
+e2e
 colour-palettes
 
 .env

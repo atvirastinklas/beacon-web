@@ -106,6 +106,7 @@
       "close": "Uždaryti",
       "clear": "Išvalyti",
       "none": "Nėra",
+      "deselectAll": "Atžymėti visus",
       "noMatches": "Atitikmenų nėra",
       "filterPlaceholder": "Filtruoti…"
     },

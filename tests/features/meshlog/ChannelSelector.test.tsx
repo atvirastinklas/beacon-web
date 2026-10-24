@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 import { ChannelSelector } from "../../../src/features/meshlog/ChannelSelector";
 import type { MeshlogChannel } from "../../../src/features/meshlog/types";
+import i18n from "../../../src/i18n";
 
 const channels: MeshlogChannel[] = [
   { id: "aa", name: "Public", keyKnown: true },
@@ -24,6 +25,21 @@ async function open() {
 }
 
 describe("Meshlog grouped channel combobox", () => {
+  it("distinguishes the Lithuanian deselection action from the empty-selection summary", async () => {
+    await i18n.changeLanguage("lt");
+    const changed = vi.fn();
+    render(<Selector changed={changed} />);
+    const trigger = screen.getAllByRole("combobox")[0]!;
+    fireEvent.click(trigger);
+    const popup = screen.getByRole("dialog");
+    expect(within(popup).getByRole("button", { name: "Visi", exact: true })).toBeInTheDocument();
+    expect(within(popup).queryByRole("button", { name: "Nėra", exact: true })).not.toBeInTheDocument();
+    fireEvent.click(within(popup).getByRole("button", { name: "Atžymėti visus", exact: true }));
+    expect(changed).toHaveBeenLastCalledWith([]);
+    expect(trigger).toHaveTextContent("Nėra");
+    expect(within(popup).queryAllByRole("option", { selected: true })).toHaveLength(0);
+  });
+
   it("toggles whole known and unknown groups independently, including mixed states and search-hidden options", async () => {
     render(<Selector />);
     const popup = await open();

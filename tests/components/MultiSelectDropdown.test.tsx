@@ -1,10 +1,22 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MultiSelectDropdown } from "../../src/components/MultiSelectDropdown";
+import i18n from "../../src/i18n";
 
 describe("MultiSelectDropdown", () => {
   const onWindowKey = vi.fn();
   afterEach(() => window.removeEventListener("keydown", onWindowKey));
+
+  it("uses the Lithuanian deselection action rather than an empty-state label", async () => {
+    await i18n.changeLanguage("lt");
+    const onChange = vi.fn();
+    render(<MultiSelectDropdown label="Types" options={[{ value: "a", label: "A" }]} selected={["a"]} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("button", { name: /Types/ }));
+    expect(screen.getByRole("button", { name: "Visi", exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Nėra", exact: true })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Atžymėti visus", exact: true }));
+    expect(onChange).toHaveBeenLastCalledWith([]);
+  });
 
   it("closes on Escape without letting an enclosing sheet close too", () => {
     window.addEventListener("keydown", onWindowKey);

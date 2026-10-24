@@ -71,7 +71,7 @@ export function ChannelSelector({ channels, selection, onSelectionChange }: {
             }}</ComboboxCollection>
           </ComboboxGroup>}
         </ComboboxList>
-        <div className="meshlog-channel-actions"><button type="button" onClick={() => onSelectionChange(null)}>{t("common.all")}</button><button type="button" onClick={() => onSelectionChange([])}>{t("common.none")}</button></div>
+        <div className="meshlog-channel-actions"><button type="button" onClick={() => onSelectionChange(null)}>{t("common.all")}</button><button type="button" onClick={() => onSelectionChange([])}>{t("common.deselectAll")}</button></div>
       </ComboboxContent>
     </Combobox>
   </div>;

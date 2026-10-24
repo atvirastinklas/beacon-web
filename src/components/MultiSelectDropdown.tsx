@@ -120,7 +120,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange, search
               }`}
               onClick={() => onChange([])}
             >
-              {t("common.none")}
+              {t("common.deselectAll")}
             </button>
           </div>
 

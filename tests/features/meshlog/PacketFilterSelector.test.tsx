@@ -2,6 +2,7 @@ import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { PacketFilterSelector, type PacketFilterOption } from "../../../src/features/meshlog/PacketFilterSelector";
+import i18n from "../../../src/i18n";
 
 const observers: PacketFilterOption<string>[] = [
   { id: "rx-a", name: "Observer", searchText: "aabbcc RIX", detail: "aabbcc · RIX" },
@@ -21,6 +22,19 @@ function open() {
 }
 
 describe("compact packet filter combobox", () => {
+  it("distinguishes the Lithuanian deselection action from the empty-selection summary", async () => {
+    await i18n.changeLanguage("lt");
+    const changed = vi.fn();
+    render(<Selector changed={changed} />);
+    const dialog = open();
+    expect(within(dialog).getByRole("button", { name: "Visi", exact: true })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Nėra", exact: true })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Atžymėti visus", exact: true }));
+    expect(changed).toHaveBeenLastCalledWith([]);
+    expect(screen.getByRole("combobox", { name: "Observers · Nėra" })).toBeInTheDocument();
+    expect(within(dialog).queryAllByRole("option", { selected: true })).toHaveLength(0);
+  });
+
   it("keeps many selected observers to one summary and exposes every selected option", () => {
     const options = Array.from({ length: 180 }, (_, i) => ({ id: `rx-${i}`, name: `Observer ${i}` }));
     render(<Selector options={options} initial={options.slice(1).map(option => option.id)} />);

@@ -48,7 +48,7 @@ export function PacketFilterSelector<ID extends string>({ label, searchLabel, op
             <span className="meshlog-filter-identity"><span>{renderLabel ? renderLabel(option) : option.name}</span>{showDetail && <code id={descriptionId}>{option.detail}</code>}</span>
           </ComboboxItem>;
         }}</ComboboxList>
-        <div className="meshlog-channel-actions"><button type="button" onClick={() => onSelectionChange(null)}>{t("common.all")}</button><button type="button" onClick={() => onSelectionChange([])}>{t("common.none")}</button></div>
+        <div className="meshlog-channel-actions"><button type="button" onClick={() => onSelectionChange(null)}>{t("common.all")}</button><button type="button" onClick={() => onSelectionChange([])}>{t("common.deselectAll")}</button></div>
       </ComboboxContent>
     </Combobox>
   </div>;

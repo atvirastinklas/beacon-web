@@ -58,6 +58,11 @@
 }
 .meshlog-live-state { padding: 6px 12px; border-bottom: 1px solid var(--color-border); font: 11px/1.5 var(--font-mono); overflow-wrap: anywhere; }
 .meshlog-live-state p { margin: 2px 0; }
+.meshlog-stream-gap { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.meshlog-stream-gap p { flex: 1 1 160px; }
+.meshlog-history-refresh { display: inline-flex; flex: none; align-items: center; gap: 6px; }
+.meshlog-history-refresh svg { flex: none; }
+.meshlog-live-state button:disabled { cursor: wait; opacity: .65; }
 .meshlog-live-state [role="alert"] { color: var(--color-warn); }
 .meshlog-history-controls { padding: 8px 12px; font: 11px/1.5 var(--font-mono); }
 .meshlog-history-controls:empty { display: none; }
@@ -154,7 +159,7 @@
   font: 11px/1.5 var(--font-mono); border: 1px solid var(--color-border); background: var(--color-bg-raised);
   color: var(--color-text-normal); border-radius: 4px; padding: 4px 7px; min-height: 28px; cursor: pointer;
 }
-.meshlog-controls button:hover, .meshlog-filter-warning button:hover, .meshlog-popover button:hover, .meshlog-history-controls button:hover:not(:disabled), .meshlog-live-state button:hover {
+.meshlog-controls button:hover, .meshlog-filter-warning button:hover, .meshlog-popover button:hover, .meshlog-history-controls button:hover:not(:disabled), .meshlog-live-state button:hover:not(:disabled) {
   color: var(--color-text-bright); border-color: var(--color-text-muted);
 }
 .meshlog-empty { padding: 20px 4px; color: var(--color-text-normal); font-size: 12px; }

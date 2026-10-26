@@ -101,9 +101,11 @@ export interface MeshlogLiveState {
   regionLabel: string;
   onRetry: () => void;
   historyLoading: boolean;
+  historyRefreshing: boolean;
   historyError: boolean;
   hasOlder: boolean;
   loadingOlder: boolean;
   loadOlder: () => void;
   retryHistory: () => void;
+  refreshHistory: () => void;
 }

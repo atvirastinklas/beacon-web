@@ -117,6 +117,34 @@ it("filters retained history through the grouped channel combobox and restores i
   expect(await screen.findByText(liveMessage.content)).toBeInTheDocument();
 });
 
+it("refreshes packet history from the gap warning without resetting channel filters or the live session", async () => {
+  render(<App />);
+  expect(await screen.findByText(liveMessage.content)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("combobox", { name: /Select channels/ }));
+  fireEvent.click(await screen.findByRole("option", { name: /Community/ }));
+  fireEvent.keyDown(screen.getByRole("combobox", { name: "Search channels" }), { key: "Escape" });
+  expect(screen.queryByText(liveMessage.content)).not.toBeInTheDocument();
+  const sockets = [...Socket.instances];
+  act(() => {
+    const socket = sockets.at(-1)!;
+    socket.open();
+    socket.emit({ v: 1, type: "lagged", droppedCount: 2, since: heardAt });
+  });
+  const refresh = await screen.findByRole("button", { name: /Refresh/ });
+  await waitFor(() => expect(refresh).toBeEnabled());
+  const fetch = vi.mocked(globalThis.fetch);
+  const packetRequests = () => fetch.mock.calls.filter(([input]) => new URL(String(input), "http://localhost").pathname.endsWith("/packets"));
+  const before = packetRequests().length;
+  fireEvent.click(refresh);
+  await waitFor(() => expect(packetRequests()).toHaveLength(before + 1));
+  await waitFor(() => expect(refresh).toBeEnabled());
+  expect(new URL(String(packetRequests().at(-1)![0])).searchParams.get("iatas")).toBe("RIX");
+  expect(screen.queryByText(liveMessage.content)).not.toBeInTheDocument();
+  expect(Socket.instances).toEqual(sockets);
+  fireEvent.click(screen.getByRole("combobox", { name: /Select channels/ }));
+  expect(await screen.findByRole("option", { name: /Community/ })).toHaveAttribute("aria-selected", "false");
+});
+
 it.each(["channel-a", "channel-b"])("resolves explicitly loaded history under a channel filter before accepting channel %s", async channelHash => {
   const fetch = vi.mocked(globalThis.fetch);
   const defaults = fetch.getMockImplementation()!;

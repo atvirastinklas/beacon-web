@@ -60,7 +60,7 @@ const data: MeshlogData = {
 };
 const state: MeshlogLiveState = { status: "connected", loading: false, error: false, gap: false, emptyRegion: false,
   regionLabel: "Test region", onRetry() {}, historyLoading: false, historyError: false, hasOlder: false,
-  loadingOlder: false, loadOlder() {}, retryHistory() {} };
+  loadingOlder: false, loadOlder() {}, retryHistory() {}, historyRefreshing: false, refreshHistory() {} };
 
 let now = 0;
 let sequence = 0;

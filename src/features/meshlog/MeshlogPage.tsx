@@ -135,8 +135,8 @@ export function MeshlogPage({ data, liveState, onVisiblePacketsChange, onInspect
       }} />{visibleMessages.length === 0 && !liveState.historyLoading && !liveState.historyError && <p className="meshlog-empty">{messages.length === 0 ? liveState.emptyRegion ? t("common.noData") : liveState.status === "connected" ? <>{t("map.packetLog.waiting")}<br />{t("map.packetLog.waitingHint")}</> : t("map.packetLog.waitingConnection") : t("common.noMatches")}</p>}</div>
       <div className="meshlog-history-controls">
         {liveState.historyLoading && <p role="status">{t("packetList.loadingPackets")}</p>}
-        {liveState.historyError && <p role="alert">{t("tabs.Packets")} · {t("common.loadFailed")} <button type="button" onClick={liveState.retryHistory} aria-label={`${t("packetList.retry")} · ${t("tabs.Packets")}`}>{t("packetList.retry")}</button></p>}
-        {liveState.hasOlder && !liveState.historyLoading && <button type="button" disabled={liveState.loadingOlder} onClick={liveState.loadOlder} aria-busy={liveState.loadingOlder}>{t("packetList.loadOlder")}</button>}
+        {liveState.historyError && <p role="alert">{t("tabs.Packets")} · {t("common.loadFailed")} <button type="button" disabled={liveState.historyRefreshing} onClick={liveState.retryHistory} aria-label={`${t("packetList.retry")} · ${t("tabs.Packets")}`}>{t("packetList.retry")}</button></p>}
+        {liveState.hasOlder && !liveState.historyLoading && <button type="button" disabled={liveState.loadingOlder || liveState.historyRefreshing} onClick={liveState.loadOlder} aria-busy={liveState.loadingOlder}>{t("packetList.loadOlder")}</button>}
         {liveState.loadingOlder && <p role="status">{t("packetList.loadingPackets")}</p>}
       </div>
     </section>

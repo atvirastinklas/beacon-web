@@ -273,6 +273,102 @@ it("does not connect or fetch directories for an unresolved or empty selected re
   view.unmount();
 });
 
+it("refreshes packet history in the current region without resetting live data or claiming the gap is healed", async () => {
+  const defaults = fetch.getMockImplementation()!;
+  let resolveRefresh!: (response: Response) => void;
+  let requests = 0;
+  fetch.mockImplementation((input: string) => {
+    if (!new URL(input).pathname.endsWith("/packets")) return defaults(input);
+    requests++;
+    return requests === 1 ? json({ items: [historySummary("older")], hasMore: true, nextCursor: 123 })
+      : new Promise<Response>(resolve => { resolveRefresh = resolve; });
+  });
+  const view = mount();
+  await waitFor(() => expect(view.result.current.data.messages.map(message => message.id)).toContain("older"));
+  const socket = Socket.instances.at(-1)!;
+  act(() => {
+    socket.open();
+    socket.emit({ v: 1, type: "lagged", droppedCount: 2, since: heardAt });
+  });
+  await waitFor(() => expect(view.result.current.state.gap).toBe(true));
+  const connections = Socket.instances.length;
+  const beforeRefresh = fetch.mock.calls.length;
+  act(() => {
+    view.result.current.state.refreshHistory();
+    view.result.current.state.refreshHistory();
+  });
+  await waitFor(() => expect(view.result.current.state.historyRefreshing).toBe(true));
+  act(() => {
+    view.result.current.state.loadOlder();
+    view.result.current.state.retryHistory();
+  });
+  expect(requests).toBe(2);
+  expect(fetch.mock.calls.slice(beforeRefresh)).toHaveLength(1);
+  const url = new URL(String(fetch.mock.calls.at(-1)![0]));
+  expect(url.searchParams.get("iatas")).toBe("RIX");
+  expect(url.searchParams.get("limit")).toBe("30");
+  expect(url.searchParams.has("cursor")).toBe(false);
+  act(() => socket.emit({ v: 1, type: "event", event: "packetObservation", data: liveObservation("observer-a", "during-refresh") }));
+  await waitFor(() => expect(view.result.current.data.messages.map(message => message.id)).toContain("during-refresh"));
+  await act(async () => resolveRefresh(new Response(JSON.stringify({ ...empty, items: [historySummary("refreshed", heardAt + 1000)] }))));
+  await waitFor(() => expect(view.result.current.state.historyRefreshing).toBe(false));
+  expect(view.result.current.data.messages.map(message => message.id)).toEqual(expect.arrayContaining(["older", "during-refresh", "refreshed"]));
+  expect(view.result.current.state.gap).toBe(true);
+  expect(Socket.instances).toHaveLength(connections);
+  expect(socket.readyState).toBe(Socket.OPEN);
+  view.unmount();
+});
+
+it("keeps existing packets and the gap warning after refresh failure and allows another refresh", async () => {
+  const defaults = fetch.getMockImplementation()!;
+  let fail = false;
+  fetch.mockImplementation((input: string) => new URL(input).pathname.endsWith("/packets")
+    ? fail ? json({ error: { code: "test", message: "Unavailable" } }, 503) : json({ ...empty, items: [historySummary("retained")] })
+    : defaults(input));
+  const view = mount();
+  await waitFor(() => expect(view.result.current.data.messages.map(message => message.id)).toContain("retained"));
+  act(() => {
+    const socket = Socket.instances.at(-1)!;
+    socket.open();
+    socket.emit({ v: 1, type: "lagged", droppedCount: 2, since: heardAt });
+  });
+  await waitFor(() => expect(view.result.current.state.gap).toBe(true));
+  fail = true;
+  act(() => view.result.current.state.refreshHistory());
+  await waitFor(() => expect(view.result.current.state.historyError).toBe(true));
+  expect(view.result.current.state.historyRefreshing).toBe(false);
+  expect(view.result.current.state.gap).toBe(true);
+  expect(view.result.current.data.messages.map(message => message.id)).toContain("retained");
+  fail = false;
+  act(() => view.result.current.state.refreshHistory());
+  await waitFor(() => expect(view.result.current.state.historyError).toBe(false));
+  view.unmount();
+});
+
+it("does not interrupt loading older packets to refresh history", async () => {
+  const defaults = fetch.getMockImplementation()!;
+  let resolveOlder!: (response: Response) => void;
+  let requests = 0;
+  fetch.mockImplementation((input: string) => {
+    const url = new URL(input);
+    if (!url.pathname.endsWith("/packets")) return defaults(input);
+    requests++;
+    return url.searchParams.has("cursor") ? new Promise<Response>(resolve => { resolveOlder = resolve; })
+      : json({ items: [historySummary("head")], hasMore: true, nextCursor: 123 });
+  });
+  const view = mount();
+  await waitFor(() => expect(view.result.current.state.hasOlder).toBe(true));
+  act(() => view.result.current.state.loadOlder());
+  await waitFor(() => expect(view.result.current.state.loadingOlder).toBe(true));
+  expect(view.result.current.state.historyRefreshing).toBe(true);
+  act(() => view.result.current.state.refreshHistory());
+  expect(requests).toBe(2);
+  await act(async () => resolveOlder(new Response(JSON.stringify({ ...empty, items: [historySummary("older", heardAt - 1000)] }))));
+  await waitFor(() => expect(view.result.current.state.historyRefreshing).toBe(false));
+  expect(view.result.current.data.messages.map(message => message.id)).toEqual(["head", "older"]);
+  view.unmount();
+});
+
 it("surfaces metadata failures and supports explicit retry without polling", async () => {
   let failing = true;
   const defaults = fetch.getMockImplementation()!;

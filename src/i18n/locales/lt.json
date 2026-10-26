@@ -627,6 +627,8 @@
     },
     "meshlog": {
       "backToBeacon": "Grįžti į Beacon",
+      "refreshHistory": "Atnaujinti paketus",
+      "refreshHistoryHint": "Atnaujinti įkeltus paketus nekeičiant filtrų.",
       "settings": {
         "expiredAfterDays": "Pasenęs po (dienų)",
         "veryExpiredAfterDays": "Labai pasenęs po (dienų)",

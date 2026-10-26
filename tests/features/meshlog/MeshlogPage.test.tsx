@@ -23,6 +23,7 @@ const meshlogStyles = readFileSync("src/features/meshlog/meshlog.css", "utf8");
 const testLiveState: MeshlogLiveState = {
   status: "connected", loading: false, error: false, gap: false, emptyRegion: false, regionLabel: "Test region", onRetry: noop,
   historyLoading: false, historyError: false, hasOlder: false, loadingOlder: false, loadOlder: noop, retryHistory: noop,
+  refreshHistory: noop, historyRefreshing: false,
 };
 const testData: MeshlogData = { ...meshlogTestData, contacts: meshlogTestData.contacts.map(contact => ({
   ...contact, heardAt: Date.parse(`2026-10-24T${contact.heard}Z`), firstSeenAt: Date.parse(contact.firstSeen),
@@ -401,6 +402,52 @@ describe("Meshlog monitoring workspace", () => {
     view.rerender(<MeshlogPage data={{ ...withPending, messages: [known, { ...pending, channelId: "hash-two", channel: "Other" }] }} onVisiblePacketsChange={visible} onInspectPacket={inspect} />);
     expect(screen.queryByRole("button", { name: "Packet details: GRP_TXT · Pending sender · 12:00:00" })).not.toBeInTheDocument();
     expect(pathCount()).toBe(0);
+  });
+
+  it("refreshes history in place without changing any active filters or pinned paths", () => {
+    const refreshHistory = vi.fn();
+    const state = { ...testLiveState, gap: true, hasOlder: true, refreshHistory };
+    const data = { ...testData, scopes: ["#bc", "#north"], messages: testData.messages.map(message => ({ ...message, scope: "#bc" })) };
+    const view = render(<MeshlogPage data={data} liveState={state} />);
+    const map = mapBoundary.instances[0]!; act(() => map.emit("load"));
+    const observers = openObservers();
+    fireEvent.click(within(observers).getByRole("button", { name: "None" }));
+    fireEvent.click(within(observers).getByRole("option", { name: data.reporters.find(reporter => reporter.id === "old-town")!.name }));
+    closeObservers();
+    const types = openTypes();
+    fireEvent.click(within(types).getByRole("button", { name: "None" }));
+    fireEvent.click(within(types).getByRole("option", { name: "GRP_TXT" }));
+    closeTypes();
+    const channels = openChannels();
+    fireEvent.click(within(channels).getByRole("button", { name: "None" }));
+    const channel = data.channels.find(channel => channel.id === data.messages.find(message => message.id === "m02")!.channelId)!;
+    fireEvent.click(within(channels).getByRole("option", { name: `#${channel.name.replace(/^#/, "")}` }));
+    closeChannels();
+    const scopes = openScope();
+    fireEvent.click(within(scopes).getByRole("button", { name: "None" }));
+    fireEvent.click(within(scopes).getByRole("option", { name: "#bc" }));
+    closeScope();
+    const nodeTypes = openNodeTypes();
+    fireEvent.click(within(nodeTypes).getByRole("button", { name: "None" }));
+    fireEvent.click(within(nodeTypes).getByRole("option", { name: "Companion" }));
+    closeNodeTypes();
+    const search = screen.getByRole("searchbox", { name: "Search" });
+    fireEvent.change(search, { target: { value: "River Walker" } });
+    const pin = screen.getByRole("checkbox", { name: "Map path · River Walker · 10:23:52" });
+    fireEvent.click(pin);
+    const resetKey = flowBoundary.mock.lastCall![0].resetKey;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh packets" }));
+    expect(refreshHistory).toHaveBeenCalledOnce();
+    for (const historyRefreshing of [true, false]) {
+      view.rerender(<MeshlogPage data={{ ...data }} liveState={{ ...state, historyRefreshing }} />);
+      expect(flowBoundary.mock.lastCall![0].resetKey).toBe(resetKey);
+      expect(search).toHaveValue("River Walker");
+      expect(pin).toBeChecked();
+      expect(screen.getByRole("button", { name: "Refresh packets" })).toHaveAttribute("aria-busy", String(historyRefreshing));
+      expect(screen.getByRole("button", { name: "Load older packets" })).toHaveProperty("disabled", historyRefreshing);
+      expect(screen.getByRole("alert")).toHaveTextContent("Packets · Data unavailable");
+      expect(mapBoundary.instances).toHaveLength(1);
+    }
   });
 
   it("keeps live animation resets tied to explicit filters, not pins, publications or incoming messages", () => {

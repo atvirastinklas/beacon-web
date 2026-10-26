@@ -7,6 +7,7 @@ import i18n from "../../../src/i18n";
 const state: MeshlogLiveState = {
   status: "connected", loading: true, error: false, gap: false, emptyRegion: false, regionLabel: "All Regions", onRetry: () => {},
   historyLoading: false, historyError: false, hasOlder: false, loadingOlder: false, loadOlder: () => {}, retryHistory: () => {},
+  refreshHistory: () => {}, historyRefreshing: false,
 };
 
 describe("compact packet header", () => {
@@ -43,7 +44,7 @@ describe("compact packet header", () => {
     const button = screen.getByRole("button", { name: "Retry" });
     expect(button.closest(".meshlog-brand")).not.toBeNull();
     expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
-    expect(view.container.querySelector(".meshlog-live-state button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Refresh packets" }).closest(".meshlog-live-state")).not.toBeNull();
     fireEvent.click(button);
     expect(retry).toHaveBeenCalledOnce();
     view.rerender(<PacketHeader liveState={{ ...state, loading: true, error: true, onRetry: retry }} />);
@@ -54,6 +55,39 @@ describe("compact packet header", () => {
     view.rerender(<PacketHeader liveState={{ ...state, loading: false }} />);
     expect(view.container.querySelector(".meshlog-live-state")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  });
+
+  it("refreshes loaded history from the gap warning, prevents duplicate requests and keeps the warning after completion", () => {
+    const refreshHistory = vi.fn(), retry = vi.fn();
+    const liveState = { ...state, loading: false, gap: true, refreshHistory, onRetry: retry };
+    const view = render(<PacketHeader liveState={liveState} />);
+    const button = screen.getByRole("button", { name: "Refresh packets" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Packets · Data unavailable");
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("aria-busy", "false");
+    fireEvent.click(button);
+    expect(refreshHistory).toHaveBeenCalledOnce();
+    expect(retry).not.toHaveBeenCalled();
+    view.rerender(<PacketHeader liveState={{ ...liveState, historyRefreshing: true }} />);
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button.querySelector("svg")).toHaveClass("animate-spin", "motion-reduce:animate-none");
+    fireEvent.click(button);
+    expect(refreshHistory).toHaveBeenCalledOnce();
+    view.rerender(<PacketHeader liveState={liveState} />);
+    expect(button).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Packets · Data unavailable");
+    view.rerender(<PacketHeader liveState={{ ...liveState, gap: false }} />);
+    expect(screen.queryByRole("button", { name: "Refresh packets" })).not.toBeInTheDocument();
+  });
+
+  it("labels the refresh action and its keyboard tooltip in Lithuanian", async () => {
+    render(<PacketHeader liveState={{ ...state, gap: true }} />);
+    await act(async () => { await i18n.changeLanguage("lt"); });
+    const button = screen.getByRole("button", { name: "Atnaujinti paketus" });
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    act(() => button.focus());
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Atnaujinti įkeltus paketus nekeičiant filtrų.");
   });
 
   it("provides a keyboard-focus tooltip for the compact retry action", async () => {

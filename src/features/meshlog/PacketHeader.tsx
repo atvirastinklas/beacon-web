@@ -37,7 +37,19 @@ export function PacketHeader({ liveState }: { liveState: MeshlogLiveState }) {
     </header>
     {(liveState.error || liveState.gap) && <div className="meshlog-live-state">
       {liveState.error && <p role="alert">{t("common.loadFailed")}</p>}
-      {liveState.gap && <p role="alert">{t("tabs.Packets")} · {t("common.dataUnavailable")}</p>}
+      {liveState.gap && <div className="meshlog-stream-gap">
+        <p role="alert">{t("tabs.Packets")} · {t("common.dataUnavailable")}</p>
+        <Tooltip>
+          <TooltipTrigger render={<button type="button" disabled={liveState.historyRefreshing} />}
+            className="meshlog-history-refresh" disabled={liveState.historyRefreshing} aria-busy={liveState.historyRefreshing} onClick={liveState.refreshHistory}>
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" className={liveState.historyRefreshing ? "animate-spin motion-reduce:animate-none" : undefined}>
+              <path d="M13 5A5 5 0 1 0 13 10M13 2v3h-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {t("meshlog.refreshHistory")}
+          </TooltipTrigger>
+          <TooltipContent role="tooltip">{t("meshlog.refreshHistoryHint")}</TooltipContent>
+        </Tooltip>
+      </div>}
     </div>}
   </>;
 }

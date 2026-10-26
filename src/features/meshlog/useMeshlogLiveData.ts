@@ -145,11 +145,17 @@ export function useMeshlogLiveData() {
     regionLabel: pending ? t("map.packetLog.loadingRegion") : iatas === undefined ? t("region.allRegions") : iatas.join(", ") || t("common.noData"),
     onRetry,
     historyLoading: history.isLoading && !pending,
+    historyRefreshing: history.isFetching,
     historyError: history.isError || history.isFetchNextPageError,
     hasOlder: history.hasNextPage === true,
     loadingOlder: history.isFetchingNextPage,
-    loadOlder: () => { if (history.hasNextPage && !history.isFetchingNextPage) void history.fetchNextPage(); },
-    retryHistory: () => { void (history.isFetchNextPageError ? history.fetchNextPage() : history.refetch()); },
+    loadOlder: () => { if (history.hasNextPage && !history.isFetching) void history.fetchNextPage({ cancelRefetch: false }); },
+    retryHistory: () => {
+      if (!history.isFetching) void (history.isFetchNextPageError ? history.fetchNextPage({ cancelRefetch: false }) : history.refetch({ cancelRefetch: false }));
+    },
+    refreshHistory: () => {
+      if (!pending && !history.isFetching) void history.refetch({ cancelRefetch: false });
+    },
   };
   return { data, state, liveBatch: snapshot.liveBatch, sessionKey: session.key, onVisiblePacketsChange, onInspectPacket, onInspectContact, onRetryContact };
 }

@@ -589,6 +589,8 @@
     },
     "meshlog": {
       "backToBeacon": "Back to Beacon",
+      "refreshHistory": "Refresh packets",
+      "refreshHistoryHint": "Refresh loaded packets without changing your filters.",
       "settings": {
         "expiredAfterDays": "Expired after (days)",
         "veryExpiredAfterDays": "Very expired after (days)",

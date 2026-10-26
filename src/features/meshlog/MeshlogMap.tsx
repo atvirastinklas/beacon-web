@@ -25,6 +25,7 @@ const ICON_IMAGE = ["match", ["get", "nodeTypeName"], ...NODE_TYPE_NAMES.flatMap
 const GLOW: ExpressionSpecification = ["coalesce", ["feature-state", "glow"], 0];
 const OVERVIEW_TYPES = [...NODE_TYPE_NAMES, "unknown"];
 const OVERVIEW_IMAGE = ["match", ["get", "nodeTypeName"], ...NODE_TYPE_NAMES.flatMap(type => [type, overviewMarkerId(type)]), overviewMarkerId("unknown")] as unknown as ExpressionSpecification;
+const OBSERVER_PIP_FILTER: ExpressionSpecification = ["all", ["==", ["get", "nodeTypeName"], "unknown"], ["==", ["get", "isObserver"], true]];
 
 export function MeshlogMap({ contacts, framingContacts = contacts, paths: pathInput = EMPTY_PATHS, pinnedPaths: pinnedInput = EMPTY_PATHS, onClearPaths, regionLabel, liveBatch, visibleReportKeys = EMPTY_REPORT_KEYS, flowResetKey = "" }: {
   contacts: MeshlogContact[]; framingContacts?: MeshlogContact[]; paths?: PacketPath[]; regionLabel?: string;
@@ -57,6 +58,19 @@ export function MeshlogMap({ contacts, framingContacts = contacts, paths: pathIn
   useMeshlogPacketFlow({ mapRef: map, isReady: status === "ready", enabled: true, batch: liveBatch, visibleReportKeys, themeKey: String(nodePalette.revision), resetKey: flowResetKey, visibleNodes });
   const interactiveContacts = useMemo(() => activeNodeIds.size ? contacts.filter(contact => activeNodeIds.has(contact.id)) : contacts, [contacts, activeNodeIds]);
   useMeshlogNodeHover(map, status === "ready", interactiveContacts, flowResetKey);
+  const syncNodeEmphasis = useCallback((instance: Map) => {
+    const ids = [...activeNodeIds];
+    // Exclude unrelated features from layout/picking, including detailed icons.
+    const filter: ExpressionSpecification | null = ids.length ? ["in", ["get", "id"], ["literal", ids]] : null;
+    for (const id of ["meshlog-nodes", "meshlog-node-glow", "meshlog-node-labels"]) instance.setFilter(id, filter);
+    instance.setFilter("meshlog-node-observer-pips", filter ? ["all", OBSERVER_PIP_FILTER, filter] : OBSERVER_PIP_FILTER);
+    const opacity: ExpressionSpecification | number = ids.length ? ["case", ["in", ["get", "id"], ["literal", ids]], 1, 0] : 1;
+    instance.setPaintProperty("meshlog-nodes", "icon-opacity", opacity);
+    instance.setPaintProperty("meshlog-node-observer-pips", "circle-opacity", opacity);
+    instance.setPaintProperty("meshlog-node-observer-pips", "circle-stroke-opacity", opacity);
+    instance.setPaintProperty("meshlog-node-labels", "text-opacity", opacity);
+    instance.setPaintProperty("meshlog-node-glow", "circle-opacity", ["*", GLOW, .12, opacity]);
+  }, [activeNodeIds]);
   const installOverviewImage = useCallback((instance: Map, type: string, color: string) => {
     const id = overviewMarkerId(type);
     const exists = instance.hasImage(id);
@@ -133,7 +147,7 @@ export function MeshlogMap({ contacts, framingContacts = contacts, paths: pathIn
         // overdraw preserves the complete foreground outline, without moving,
         // clustering or culling nodes. Zoom >= 9 keeps Beacon's role assets.
         instance.addLayer({ id: "meshlog-nodes", type: "symbol", source: "meshlog-nodes", layout: { "icon-image": ["step", ["zoom"], OVERVIEW_IMAGE, 9, ICON_IMAGE], "icon-size": 1, "icon-allow-overlap": true, "icon-ignore-placement": true, "symbol-z-order": "source" }, paint: { "icon-opacity": 1 } });
-        instance.addLayer({ id: "meshlog-node-observer-pips", type: "circle", source: "meshlog-nodes", minzoom: 9, filter: ["all", ["==", ["get", "nodeTypeName"], "unknown"], ["==", ["get", "isObserver"], true]], paint: {
+        instance.addLayer({ id: "meshlog-node-observer-pips", type: "circle", source: "meshlog-nodes", minzoom: 9, filter: OBSERVER_PIP_FILTER, paint: {
           "circle-radius": 3, "circle-color": "#c79bff", "circle-stroke-color": "#111827", "circle-stroke-width": 1, "circle-translate": [7, -7], "circle-translate-anchor": "viewport",
         } });
         instance.addLayer({ id: "meshlog-node-labels", type: "symbol", source: "meshlog-nodes", minzoom: 12, layout: {
@@ -141,6 +155,8 @@ export function MeshlogMap({ contacts, framingContacts = contacts, paths: pathIn
         }, paint: { "text-color": "#e5e7eb", "text-halo-color": "#111827", "text-halo-width": 1.5 } });
       }
       writtenMarkers.current = visibleNodes;
+      // Bind visibility to layer readiness, not status: tile errors can persist.
+      syncNodeEmphasis(instance);
       // Use the unfiltered directory once, not packet/path or filter changes.
       const positions = framingContacts.flatMap(contact => contact.position && contact.position.every(Number.isFinite) ? [contact.position] : []);
       if (!framed.current && positions.length) {
@@ -153,7 +169,7 @@ export function MeshlogMap({ contacts, framingContacts = contacts, paths: pathIn
     instance.on("load", draw);
     draw();
     return () => { instance.off("load", draw); };
-  }, [visibleNodes, framingContacts]);
+  }, [visibleNodes, framingContacts, syncNodeEmphasis]);
   useEffect(() => {
     const instance = map.current;
     if (!instance || status !== "ready") return;
@@ -186,17 +202,10 @@ export function MeshlogMap({ contacts, framingContacts = contacts, paths: pathIn
   }, [paths, paletteRev, status]);
   useEffect(() => {
     const instance = map.current;
-    if (!instance || status !== "ready") return;
-    const ids = [...activeNodeIds];
-    const opacity: ExpressionSpecification | number = ids.length ? ["case", ["in", ["get", "id"], ["literal", ids]], 1, 0] : 1;
-    instance.setPaintProperty("meshlog-nodes", "icon-opacity", opacity);
-    instance.setPaintProperty("meshlog-node-observer-pips", "circle-opacity", opacity);
-    instance.setPaintProperty("meshlog-node-observer-pips", "circle-stroke-opacity", opacity);
-    instance.setPaintProperty("meshlog-node-labels", "text-opacity", opacity);
-    instance.setPaintProperty("meshlog-node-glow", "circle-opacity", ["*", GLOW, .12, opacity]);
+    if (!instance || !mapReady.current) return;
     // Keep live activity as background context, preserving each animation's fade.
     // These overrides belong to MeshLog; the main map keeps its existing style.
-    const liveOpacity = ids.length ? .15 : .45;
+    const liveOpacity = activeNodeIds.size ? .15 : .45;
     for (const [id, property, scale] of [
       [PACKET_FLOW_TRAIL_LAYER_ID, "line-opacity", 1],
       [PACKET_FLOW_DOT_LAYER_ID, "circle-opacity", 1],

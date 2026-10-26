@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FeatureCollection } from "geojson";
+import { createPropertyExpression, featureFilter, latest, type FilterSpecification, type StylePropertySpecification } from "@maplibre/maplibre-gl-style-spec";
 import { MeshlogMap } from "../../../src/features/meshlog/MeshlogMap";
 import type { MeshlogContact } from "../../../src/features/meshlog/types";
 import type { PacketPath } from "../../../src/features/map/packet-path";
@@ -11,7 +12,8 @@ import i18n from "../../../src/i18n";
 
 const flow = vi.hoisted(() => vi.fn());
 const theme = vi.hoisted(() => ({ paletteRev: 0 }));
-const boundary = vi.hoisted(() => ({ maps: [] as { emit: (event: string, payload?: unknown) => void; data: Record<string, FeatureCollection>; sources: Record<string, { promoteId?: string }>; layers: Record<string, { type: string; layout?: Record<string, unknown>; paint?: Record<string, unknown> }>; layerOrder: string[]; hit: unknown[]; canvas: HTMLElement; addImage: ReturnType<typeof vi.fn>; writes: Record<string, number>; fitBounds: ReturnType<typeof vi.fn>; resolveImage: (id: string) => unknown }[] }));
+type BoundaryLayer = { type: string; minzoom?: number; filter?: FilterSpecification; layout?: Record<string, unknown>; paint?: Record<string, unknown> };
+const boundary = vi.hoisted(() => ({ maps: [] as { emit: (event: string, payload?: unknown) => void; data: Record<string, FeatureCollection>; sources: Record<string, { promoteId?: string }>; layers: Record<string, BoundaryLayer>; layerOrder: string[]; hit: unknown[]; canvas: HTMLElement; addImage: ReturnType<typeof vi.fn>; writes: Record<string, number>; fitBounds: ReturnType<typeof vi.fn>; resolveImage: (id: string) => unknown }[] }));
 vi.mock("../../../src/features/meshlog/useMeshlogPacketFlow", () => ({ useMeshlogPacketFlow: flow }));
 vi.mock("../../../src/hooks/useTheme", () => ({ useTheme: () => theme }));
 vi.mock("../../../src/features/meshlog/overview-marker", async original => ({ ...await original<typeof import("../../../src/features/meshlog/overview-marker")>(), rasterizeOverviewMarker: vi.fn(() => ({ data: { width: 48, height: 48, data: new Uint8ClampedArray(48 * 48 * 4) }, pixelRatio: 2 })) }));
@@ -19,7 +21,7 @@ vi.mock("../../../src/features/map/node-icons", async original => ({ ...await or
 vi.mock("maplibre-gl", () => ({
   setWorkerUrl: vi.fn(), NavigationControl: class {}, AttributionControl: class {},
   Map: class {
-    data: Record<string, FeatureCollection> = {}; sources: Record<string, { promoteId?: string }> = {}; layers: Record<string, { type: string }> = {}; hit: unknown[] = [];
+    data: Record<string, FeatureCollection> = {}; sources: Record<string, { promoteId?: string }> = {}; layers: Record<string, BoundaryLayer> = {}; hit: unknown[] = [];
     writes: Record<string, number> = {}; fitBounds = vi.fn();
     layerOrder: string[] = [];
     resolveImage: (id: string) => unknown = () => {};
@@ -39,6 +41,7 @@ vi.mock("maplibre-gl", () => ({
       this.layerOrder.splice(beforeId ? this.layerOrder.indexOf(beforeId) : this.layerOrder.length, 0, layer.id);
     }
     getLayer(id: string) { return this.layers[id]; }
+    setFilter(id: string, filter: FilterSpecification | null) { if (filter === null) delete this.layers[id]!.filter; else this.layers[id]!.filter = filter; }
     removeLayer(id: string) { this.layerOrder.splice(this.layerOrder.indexOf(id), 1); delete this.layers[id]; }
     removeSource(id: string) { delete this.sources[id]; delete this.data[id]; }
     setPaintProperty(id: string, property: string, value: unknown) { const layer = this.layers[id] as { paint?: Record<string, unknown> }; (layer.paint ??= {})[property] = value; } hasImage(id: string) { return this.images.has(id); } updateImage() {}
@@ -57,6 +60,57 @@ describe("Meshlog map controls and role assets", () => {
   const path: PacketPath = { key: "packet:rx", label: "Observer", color: "#22c55e", points: [
     { id: contact.id, name: contact.name, lng: 24, lat: 56 }, { id: "relay", name: "Relay", lng: 25, lat: 57 }, { id: "rx", lng: 26, lat: 58, breakBefore: true },
   ] };
+  it.each([8, 10, 13].flatMap(zoom => [false, true].map(tileError => ({ zoom, tileError }))))("filters node layout by path IDs at zoom $zoom after tile error: $tileError", ({ zoom, tileError }) => {
+    const contacts: MeshlogContact[] = [
+      { ...contact, id: "hovered-role" }, { ...contact, id: "unrelated-role" },
+      ...["pinned-unknown", "unrelated-unknown", "unknown-without-pip"].map(id => ({ ...contact, id, node: { ...contact.node!, nodeTypeName: "Unknown", isObserver: id !== "unknown-without-pip" } })),
+    ];
+    const hovered: PacketPath = { ...path, key: "hover", points: [{ id: "hovered-role", lng: 24, lat: 56 }] };
+    const pinned: PacketPath = { ...path, key: "pin", points: [{ id: "pinned-unknown", lng: 24, lat: 56 }] };
+    const view = render(<MeshlogMap contacts={contacts} />);
+    const map = boundary.maps[0]!; act(() => map.emit("load"));
+    const allIds = contacts.map(node => node.id).sort();
+    const expectLayout = (ids: string[]) => {
+      for (const id of ["meshlog-nodes", "meshlog-node-glow", "meshlog-node-labels", "meshlog-node-observer-pips"]) {
+        const layer = map.layers[id]!;
+        const compiled = featureFilter(layer.filter, `layers.${id}.filter`);
+        const accepted = zoom < (layer.minzoom ?? 0) ? [] : map.data["meshlog-nodes"]!.features
+          .filter(feature => compiled.filter({ zoom }, { type: "Point", properties: feature.properties ?? {} }))
+          .map(feature => String(feature.properties!.id)).sort();
+        const expected = zoom < (layer.minzoom ?? 0) ? [] : id === "meshlog-node-observer-pips"
+          ? ids.filter(node => node === "pinned-unknown" || node === "unrelated-unknown").sort() : [...ids].sort();
+        expect(accepted, `${id} at zoom ${zoom}`).toEqual(expected);
+      }
+      // Filtering layout must not remove node identity from the live-flow directory.
+      expect(map.data["meshlog-nodes"]!.features.map(feature => feature.properties!.id).sort()).toEqual(allIds);
+      expect(flow.mock.lastCall![0].visibleNodes.features.map((feature: { properties: { id: string } }) => feature.properties.id).sort()).toEqual(allIds);
+    };
+    const icon = createPropertyExpression(map.layers["meshlog-nodes"]!.layout!["icon-image"], "layers.meshlog-nodes.layout.icon-image", latest.layout_symbol["icon-image"] as StylePropertySpecification);
+    expect(icon.result).toBe("success");
+    if (icon.result !== "success") throw new Error("Invalid icon expression");
+    const roleFeature = map.data["meshlog-nodes"]!.features.find(feature => feature.properties!.id === "hovered-role")!;
+    expect(icon.value.evaluate({ zoom }, { type: "Point", properties: roleFeature.properties ?? {} }, {})).toMatchObject({ name: zoom < 9 ? overviewMarkerId("room_server") : "node-room_server-observer" });
+    expectLayout(allIds);
+    if (tileError) act(() => map.emit("error"));
+    view.rerender(<MeshlogMap contacts={contacts} paths={[hovered]} />);
+    expectLayout(["hovered-role"]);
+    view.rerender(<MeshlogMap contacts={contacts} paths={[pinned, hovered]} pinnedPaths={[pinned]} />);
+    expectLayout(["pinned-unknown", "hovered-role"]);
+    view.rerender(<MeshlogMap contacts={contacts} paths={[pinned]} pinnedPaths={[pinned]} />);
+    expectLayout(["pinned-unknown"]);
+    view.rerender(<MeshlogMap contacts={contacts} />);
+    expectLayout(allIds);
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+  });
+  it("applies an initial path filter even if an error precedes load", () => {
+    const contacts = [contact, { ...contact, id: "unrelated" }];
+    render(<MeshlogMap contacts={contacts} paths={[path]} />);
+    const map = boundary.maps[0]!;
+    act(() => map.emit("error"));
+    act(() => map.emit("load"));
+    const compiled = featureFilter(map.layers["meshlog-nodes"]!.filter, "layers.meshlog-nodes.filter");
+    expect(map.data["meshlog-nodes"]!.features.filter(feature => compiled.filter({ zoom: 13 }, { type: "Point", properties: feature.properties ?? {} })).map(feature => feature.properties!.id)).toEqual([contact.id]);
+  });
   it("shows only the hover/pin union above overlapping unrelated nodes and restores pins, then the overview", () => {
     const contacts = ["a-hovered", "m-pinned", "z-unrelated"].map(id => ({ ...contact, id }));
     const hovered: PacketPath = { ...path, key: "hover", points: [{ id: "a-hovered", lng: 24, lat: 56 }] };

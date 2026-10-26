@@ -57,7 +57,7 @@ describe("compact packet header", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
-  it("refreshes loaded history from the gap warning, prevents duplicate requests and keeps the warning after completion", () => {
+  it("refreshes loaded history from the gap warning, prevents duplicate requests and follows the gap state", () => {
     const refreshHistory = vi.fn(), retry = vi.fn();
     const liveState = { ...state, loading: false, gap: true, refreshHistory, onRetry: retry };
     const view = render(<PacketHeader liveState={liveState} />);

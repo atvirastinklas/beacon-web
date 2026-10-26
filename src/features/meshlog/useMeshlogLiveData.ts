@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useInfiniteQuery, useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { getChannels, getNodesPage, getObserversPage, getPackets, getScopes } from "../../api/client";
@@ -34,6 +34,7 @@ export function useMeshlogLiveData() {
   const regionRequests = useIsFetching({ queryKey: ["regions"] });
   const regionError = pending && regionRequests === 0 && queryClient.getQueryState(["regions"])?.status === "error";
   const session = useMemo(() => ({ key: regionKey, manager: new WsManager(WS_URL), store: new MeshlogLiveStore(), buildData: createMeshlogDataBuilder() }), [regionKey]);
+  const refreshingStore = useRef<MeshlogLiveStore | null>(null);
   const snapshot = useSyncExternalStore(session.store.subscribe, session.store.getSnapshot);
   const { status } = useWsStatus(session.manager);
   const history = useInfiniteQuery({
@@ -154,7 +155,13 @@ export function useMeshlogLiveData() {
       if (!history.isFetching) void (history.isFetchNextPageError ? history.fetchNextPage({ cancelRefetch: false }) : history.refetch({ cancelRefetch: false }));
     },
     refreshHistory: () => {
-      if (!pending && !history.isFetching) void history.refetch({ cancelRefetch: false });
+      const store = session.store;
+      if (pending || history.isFetching || refreshingStore.current === store) return;
+      refreshingStore.current = store;
+      const revision = store.getGapRevision();
+      void history.refetch({ cancelRefetch: false }).then(result => {
+        if (result.isSuccess) store.acknowledgeGap(revision);
+      }).finally(() => { if (refreshingStore.current === store) refreshingStore.current = null; });
     },
   };
   return { data, state, liveBatch: snapshot.liveBatch, sessionKey: session.key, onVisiblePacketsChange, onInspectPacket, onInspectContact, onRetryContact };

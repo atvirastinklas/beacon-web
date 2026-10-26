@@ -339,6 +339,49 @@ it("keeps unknown identities/types visible and never maps ambiguous, all-gapped 
   expect(packetPathsToFeatures(paths, null).lines.features[0]!.geometry.coordinates).toEqual([[24.087, 56.943], [24.105, 56.951]]);
 });
 
+it.each([false, true])("acknowledges a refresh-start gap revision with its warning already published: %s", published => {
+  const store = new MeshlogLiveStore();
+  store.noteGap();
+  if (published) flush();
+  store.acknowledgeGap(store.getGapRevision());
+  flush();
+  expect(store.getSnapshot().gap).toBe(false);
+});
+
+it("does not acknowledge a newer interruption that has not been published yet", () => {
+  const store = new MeshlogLiveStore();
+  store.noteGap();
+  flush();
+  const revision = store.getGapRevision();
+  store.noteGap();
+  store.acknowledgeGap(revision);
+  flush();
+  expect(store.getSnapshot().gap).toBe(true);
+});
+
+it("preserves an interruption arriving after acknowledgement but before publication", () => {
+  const store = new MeshlogLiveStore();
+  store.noteGap();
+  store.acknowledgeGap(store.getGapRevision());
+  store.noteGap();
+  flush();
+  expect(store.getSnapshot().gap).toBe(true);
+});
+
+it("invalidates refresh acknowledgements on disposal without publishing late work", () => {
+  const store = new MeshlogLiveStore();
+  store.noteGap();
+  flush();
+  const revision = store.getGapRevision();
+  const listener = vi.fn();
+  store.subscribe(listener);
+  store.dispose();
+  store.acknowledgeGap(revision);
+  flush();
+  expect(listener).not.toHaveBeenCalled();
+  expect(store.getSnapshot().gap).toBe(true);
+});
+
 it("publishes gap notices and cancels pending work on cleanup", () => {
   const store = new MeshlogLiveStore();
   store.noteGap();

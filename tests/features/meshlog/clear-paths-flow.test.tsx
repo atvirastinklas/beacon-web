@@ -41,6 +41,7 @@ vi.mock("maplibre-gl", () => ({
     removeSource(id: string) { this.sources.delete(id); }
     addLayer(layer: { id: string; paint?: Record<string, unknown> }) { this.layers.set(layer.id, layer); }
     getLayer(id: string) { return this.layers.get(id); }
+    setFilter(id: string, filter: unknown) { Object.assign(this.layers.get(id)!, { filter }); }
     removeLayer(id: string) { this.layers.delete(id); }
     setPaintProperty(id: string, property: string, value: unknown) { const layer = this.layers.get(id)!; (layer.paint ??= {})[property] = value; }
     setFeatureState() {} removeFeatureState() {}

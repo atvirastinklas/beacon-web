@@ -2,7 +2,7 @@ import { StrictMode, type ReactNode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { RegionProvider } from "../../../src/hooks/useRegion";
+import { RegionProvider, useRegionSelection } from "../../../src/hooks/useRegion";
 import { useMeshlogLiveData } from "../../../src/features/meshlog/useMeshlogLiveData";
 import type { RegionSelection } from "../../../src/hooks/region-selection";
 import { heardAt, liveMessage, liveNode, liveNodeDetail, liveObservation, historySummary, historyDetail, liveObserver } from "./live-fixtures";
@@ -273,7 +273,7 @@ it("does not connect or fetch directories for an unresolved or empty selected re
   view.unmount();
 });
 
-it("refreshes packet history in the current region without resetting live data or claiming the gap is healed", async () => {
+it("acknowledges the stream warning after refreshing the current region without resetting live data", async () => {
   const defaults = fetch.getMockImplementation()!;
   let resolveRefresh!: (response: Response) => void;
   let requests = 0;
@@ -313,7 +313,7 @@ it("refreshes packet history in the current region without resetting live data o
   await act(async () => resolveRefresh(new Response(JSON.stringify({ ...empty, items: [historySummary("refreshed", heardAt + 1000)] }))));
   await waitFor(() => expect(view.result.current.state.historyRefreshing).toBe(false));
   expect(view.result.current.data.messages.map(message => message.id)).toEqual(expect.arrayContaining(["older", "during-refresh", "refreshed"]));
-  expect(view.result.current.state.gap).toBe(true);
+  await waitFor(() => expect(view.result.current.state.gap).toBe(false));
   expect(Socket.instances).toHaveLength(connections);
   expect(socket.readyState).toBe(Socket.OPEN);
   view.unmount();
@@ -342,6 +342,38 @@ it("keeps existing packets and the gap warning after refresh failure and allows 
   fail = false;
   act(() => view.result.current.state.refreshHistory());
   await waitFor(() => expect(view.result.current.state.historyError).toBe(false));
+  await waitFor(() => expect(view.result.current.state.gap).toBe(false));
+  view.unmount();
+});
+
+it("retains a new stream interruption received while manual refresh is in flight", async () => {
+  const defaults = fetch.getMockImplementation()!;
+  let resolveRefresh!: (response: Response) => void;
+  let requests = 0;
+  fetch.mockImplementation((input: string) => {
+    if (!new URL(input).pathname.endsWith("/packets")) return defaults(input);
+    return ++requests === 1 ? json(empty) : new Promise<Response>(resolve => { resolveRefresh = resolve; });
+  });
+  const view = mount();
+  await waitFor(() => expect(view.result.current.state.loading || view.result.current.state.historyRefreshing).toBe(false));
+  const socket = Socket.instances.at(-1)!;
+  act(() => {
+    socket.open();
+    socket.emit({ v: 1, type: "lagged", droppedCount: 2, since: heardAt });
+  });
+  await waitFor(() => expect(view.result.current.state.gap).toBe(true));
+  act(() => view.result.current.state.refreshHistory());
+  await waitFor(() => expect(view.result.current.state.historyRefreshing).toBe(true));
+  act(() => socket.emit({ v: 1, type: "lagged", droppedCount: 1, since: heardAt + 1 }));
+  await act(async () => resolveRefresh(new Response(JSON.stringify(empty))));
+  await waitFor(() => expect(view.result.current.state.historyRefreshing).toBe(false));
+  // Allow the store's RAF publication to expose an incorrectly cleared warning.
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+  expect(view.result.current.state.gap).toBe(true);
+  act(() => view.result.current.state.refreshHistory());
+  await waitFor(() => expect(requests).toBe(3));
+  await act(async () => resolveRefresh(new Response(JSON.stringify(empty))));
+  await waitFor(() => expect(view.result.current.state.gap).toBe(false));
   view.unmount();
 });
 
@@ -358,6 +390,12 @@ it("does not interrupt loading older packets to refresh history", async () => {
   });
   const view = mount();
   await waitFor(() => expect(view.result.current.state.hasOlder).toBe(true));
+  act(() => {
+    const socket = Socket.instances.at(-1)!;
+    socket.open();
+    socket.emit({ v: 1, type: "lagged", droppedCount: 2, since: heardAt });
+  });
+  await waitFor(() => expect(view.result.current.state.gap).toBe(true));
   act(() => view.result.current.state.loadOlder());
   await waitFor(() => expect(view.result.current.state.loadingOlder).toBe(true));
   expect(view.result.current.state.historyRefreshing).toBe(true);
@@ -366,6 +404,38 @@ it("does not interrupt loading older packets to refresh history", async () => {
   await act(async () => resolveOlder(new Response(JSON.stringify({ ...empty, items: [historySummary("older", heardAt - 1000)] }))));
   await waitFor(() => expect(view.result.current.state.historyRefreshing).toBe(false));
   expect(view.result.current.data.messages.map(message => message.id)).toEqual(["head", "older"]);
+  expect(view.result.current.state.gap).toBe(true);
+  view.unmount();
+});
+
+it("does not let an old region's refresh acknowledge a new session's interruption", async () => {
+  const defaults = fetch.getMockImplementation()!;
+  let resolveOldRefresh!: (response: Response) => void;
+  let oldRequests = 0;
+  fetch.mockImplementation((input: string) => {
+    const url = new URL(input);
+    if (url.pathname.endsWith("/packets") && url.searchParams.get("iatas") === "RIX" && ++oldRequests > 1) {
+      return new Promise<Response>(resolve => { resolveOldRefresh = resolve; });
+    }
+    return defaults(input);
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const view = renderHook(() => ({ ...useMeshlogLiveData(), setRegion: useRegionSelection().setSelection }), {
+    wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}><RegionProvider defaultSelection={{ regions: [], iatas: ["RIX"] }}>{children}</RegionProvider></QueryClientProvider>,
+  });
+  await waitFor(() => expect(view.result.current.state.loading || view.result.current.state.historyRefreshing).toBe(false));
+  act(() => view.result.current.state.refreshHistory());
+  await waitFor(() => expect(resolveOldRefresh).toBeDefined());
+  act(() => view.result.current.setRegion({ regions: [], iatas: ["VNO"] }));
+  await waitFor(() => expect(view.result.current.state.regionLabel).toBe("VNO"));
+  act(() => {
+    const socket = Socket.instances.at(-1)!;
+    socket.open();
+    socket.emit({ v: 1, type: "lagged", droppedCount: 1, since: heardAt });
+  });
+  await waitFor(() => expect(view.result.current.state.gap).toBe(true));
+  await act(async () => resolveOldRefresh(new Response(JSON.stringify(empty))));
+  expect(view.result.current.state.gap).toBe(true);
   view.unmount();
 });
 

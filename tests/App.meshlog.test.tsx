@@ -137,7 +137,8 @@ it("refreshes packet history from the gap warning without resetting channel filt
   const before = packetRequests().length;
   fireEvent.click(refresh);
   await waitFor(() => expect(packetRequests()).toHaveLength(before + 1));
-  await waitFor(() => expect(refresh).toBeEnabled());
+  await waitFor(() => expect(screen.queryByRole("button", { name: /Refresh/ })).not.toBeInTheDocument());
+  expect(screen.queryByText("Packets · Data unavailable")).not.toBeInTheDocument();
   expect(new URL(String(packetRequests().at(-1)![0])).searchParams.get("iatas")).toBe("RIX");
   expect(screen.queryByText(liveMessage.content)).not.toBeInTheDocument();
   expect(Socket.instances).toEqual(sockets);

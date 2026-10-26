@@ -33,6 +33,7 @@ export class MeshlogLiveStore {
   private listeners = new Set<() => void>();
   private frame: number | null = null;
   private pendingObservations: PacketEvent[] = [];
+  private gapRevision = 0;
 
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => {
@@ -124,7 +125,17 @@ export class MeshlogLiveStore {
   }
 
   noteGap() {
+    this.gapRevision++;
     this.pending = { ...this.pending, gap: true };
+    this.publish();
+  }
+
+  getGapRevision() { return this.gapRevision; }
+
+  acknowledgeGap(revision: number) {
+    // A refresh acknowledges only interruptions known when it started.
+    if (revision !== this.gapRevision || !this.pending.gap) return;
+    this.pending = { ...this.pending, gap: false };
     this.publish();
   }
 
@@ -142,6 +153,7 @@ export class MeshlogLiveStore {
   }
 
   dispose() {
+    this.gapRevision++;
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
     this.pending = this.snapshot;

@@ -3,7 +3,7 @@ import { Map, NavigationControl, AttributionControl, type GeoJSONSource, type Ex
 import { useTranslation } from "react-i18next";
 import "../map/maplibre-worker";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { resolveMapStyle, DEFAULT_CENTER, DEFAULT_ZOOM, NODE_TYPE_NAMES, NODE_ICON_UNKNOWN, nodeIconId } from "../map/types";
+import { resolveMapStyle, DEFAULT_CENTER, DEFAULT_ZOOM, NODE_TYPE_NAMES, NODE_ICON_UNKNOWN, nodeIconId, PACKET_FLOW_TRAIL_LAYER_ID, PACKET_FLOW_DOT_LAYER_ID, PACKET_FLOW_DOT_HALO_LAYER_ID, PACKET_FLOW_GHOST_LAYER_ID, PACKET_FLOW_ANCHOR_LAYER_ID } from "../map/types";
 import type { MeshlogContact, MeshlogLiveBatch } from "./types";
 import type { PacketPath } from "../map/packet-path";
 import { updatePacketPathLayers } from "../map/packet-path-layers";
@@ -40,18 +40,23 @@ export function MeshlogMap({ contacts, framingContacts = contacts, paths: pathIn
   const overviewColors = useRef(new globalThis.Map<string, string>());
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const nodePalette = useMemo(() => ({ revision: paletteRev, colors: Object.fromEntries([...NODE_TYPE_NAMES, "unknown"].map(type => [type, nodeTypeColor(type)])) }), [paletteRev]);
+  const paths = useEqualMapInput(pathInput, samePaths);
+  const pinnedPaths = useEqualMapInput(pinnedInput, samePaths);
+  // The page supplies the union of pinned paths and the current hover preview.
+  const activeNodeIds = useMemo(() => new Set(paths.flatMap(path => path.points.map(point => point.id))), [paths]);
   const markerInput = useMemo<MeshlogMarkers>(() => ({
-    type: "FeatureCollection", features: contacts.filter(contact => contact.position && contact.position.every(Number.isFinite)).sort((a, b) => a.id.localeCompare(b.id)).map(contact => ({
+    type: "FeatureCollection", features: contacts.filter(contact => contact.position && contact.position.every(Number.isFinite))
+      // Source-order symbols must draw inspected nodes after unrelated ones.
+      .sort((a, b) => Number(activeNodeIds.has(a.id)) - Number(activeNodeIds.has(b.id)) || a.id.localeCompare(b.id)).map(contact => ({
       type: "Feature", geometry: { type: "Point", coordinates: contact.position! },
       properties: { id: contact.id, name: contact.name, nodeTypeName: contactNodeType(contact), isObserver: !!contact.node?.isObserver,
         title: `${contact.name}${contact.publicKey ? ` · ${shortNodeKey(contact.publicKey, contact.hashSize)}` : ""}`, color: nodePalette.colors[contactNodeType(contact)]! },
     })),
-  }), [contacts, nodePalette]);
+  }), [contacts, nodePalette, activeNodeIds]);
   const visibleNodes = useEqualMapInput(markerInput, sameMarkers);
-  const paths = useEqualMapInput(pathInput, samePaths);
-  const pinnedPaths = useEqualMapInput(pinnedInput, samePaths);
   useMeshlogPacketFlow({ mapRef: map, isReady: status === "ready", enabled: true, batch: liveBatch, visibleReportKeys, themeKey: String(nodePalette.revision), resetKey: flowResetKey, visibleNodes });
-  useMeshlogNodeHover(map, status === "ready", contacts, flowResetKey);
+  const interactiveContacts = useMemo(() => activeNodeIds.size ? contacts.filter(contact => activeNodeIds.has(contact.id)) : contacts, [contacts, activeNodeIds]);
+  useMeshlogNodeHover(map, status === "ready", interactiveContacts, flowResetKey);
   const installOverviewImage = useCallback((instance: Map, type: string, color: string) => {
     const id = overviewMarkerId(type);
     const exists = instance.hasImage(id);
@@ -164,8 +169,9 @@ export function MeshlogMap({ contacts, framingContacts = contacts, paths: pathIn
     const instance = map.current;
     if (!instance) return;
     const draw = () => {
+      // Install after the ready-state live-flow effect so paths cover its markers.
       // After initial load, pending tiles/GeoJSON must not delay clearing paths.
-      if (!mapReady.current) return;
+      if (!mapReady.current || status === "loading") return;
       const css = getComputedStyle(document.documentElement);
       const resolvedPaths = paths.map(path => {
         const token = /^var\((--[\w-]+)\)$/.exec(path.color)?.[1];
@@ -177,16 +183,32 @@ export function MeshlogMap({ contacts, framingContacts = contacts, paths: pathIn
     instance.on("load", draw);
     draw();
     return () => { instance.off("load", draw); };
-  }, [paths, paletteRev]);
+  }, [paths, paletteRev, status]);
   useEffect(() => {
     const instance = map.current;
     if (!instance || status !== "ready") return;
-    const ids = [...new Set(pinnedPaths.flatMap(path => path.points.map(point => point.id)))];
-    const opacity: ExpressionSpecification | number = ids.length ? ["case", ["in", ["get", "id"], ["literal", ids]], 1, .18] : 1;
+    const ids = [...activeNodeIds];
+    const opacity: ExpressionSpecification | number = ids.length ? ["case", ["in", ["get", "id"], ["literal", ids]], 1, 0] : 1;
     instance.setPaintProperty("meshlog-nodes", "icon-opacity", opacity);
     instance.setPaintProperty("meshlog-node-observer-pips", "circle-opacity", opacity);
+    instance.setPaintProperty("meshlog-node-observer-pips", "circle-stroke-opacity", opacity);
     instance.setPaintProperty("meshlog-node-labels", "text-opacity", opacity);
-  }, [pinnedPaths, status]);
+    instance.setPaintProperty("meshlog-node-glow", "circle-opacity", ["*", GLOW, .12, opacity]);
+    // Keep live activity as background context, preserving each animation's fade.
+    // These overrides belong to MeshLog; the main map keeps its existing style.
+    const liveOpacity = ids.length ? .15 : .45;
+    for (const [id, property, scale] of [
+      [PACKET_FLOW_TRAIL_LAYER_ID, "line-opacity", 1],
+      [PACKET_FLOW_DOT_LAYER_ID, "circle-opacity", 1],
+      [PACKET_FLOW_DOT_LAYER_ID, "circle-stroke-opacity", 1],
+      [PACKET_FLOW_DOT_HALO_LAYER_ID, "circle-opacity", .5],
+      [PACKET_FLOW_GHOST_LAYER_ID, "circle-stroke-opacity", 1],
+      [PACKET_FLOW_ANCHOR_LAYER_ID, "circle-opacity", 1],
+      [PACKET_FLOW_ANCHOR_LAYER_ID, "circle-stroke-opacity", 1],
+    ] as const) {
+      if (instance.getLayer(id)) instance.setPaintProperty(id, property, ["*", ["get", "a"], liveOpacity * scale]);
+    }
+  }, [activeNodeIds, status]);
   const fitSelectedPaths = () => {
     const positions = pinnedPaths.flatMap(path => path.points.map(point => [point.lng, point.lat] as const)).filter(point => point.every(Number.isFinite));
     if (!positions.length || !mapReady.current) return;

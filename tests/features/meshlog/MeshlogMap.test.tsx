@@ -11,7 +11,7 @@ import i18n from "../../../src/i18n";
 
 const flow = vi.hoisted(() => vi.fn());
 const theme = vi.hoisted(() => ({ paletteRev: 0 }));
-const boundary = vi.hoisted(() => ({ maps: [] as { emit: (event: string, payload?: unknown) => void; data: Record<string, FeatureCollection>; sources: Record<string, { promoteId?: string }>; layers: Record<string, { type: string; layout?: Record<string, unknown>; paint?: Record<string, unknown> }>; hit: unknown[]; canvas: HTMLElement; addImage: ReturnType<typeof vi.fn>; writes: Record<string, number>; fitBounds: ReturnType<typeof vi.fn>; resolveImage: (id: string) => unknown }[] }));
+const boundary = vi.hoisted(() => ({ maps: [] as { emit: (event: string, payload?: unknown) => void; data: Record<string, FeatureCollection>; sources: Record<string, { promoteId?: string }>; layers: Record<string, { type: string; layout?: Record<string, unknown>; paint?: Record<string, unknown> }>; layerOrder: string[]; hit: unknown[]; canvas: HTMLElement; addImage: ReturnType<typeof vi.fn>; writes: Record<string, number>; fitBounds: ReturnType<typeof vi.fn>; resolveImage: (id: string) => unknown }[] }));
 vi.mock("../../../src/features/meshlog/useMeshlogPacketFlow", () => ({ useMeshlogPacketFlow: flow }));
 vi.mock("../../../src/hooks/useTheme", () => ({ useTheme: () => theme }));
 vi.mock("../../../src/features/meshlog/overview-marker", async original => ({ ...await original<typeof import("../../../src/features/meshlog/overview-marker")>(), rasterizeOverviewMarker: vi.fn(() => ({ data: { width: 48, height: 48, data: new Uint8ClampedArray(48 * 48 * 4) }, pixelRatio: 2 })) }));
@@ -21,6 +21,7 @@ vi.mock("maplibre-gl", () => ({
   Map: class {
     data: Record<string, FeatureCollection> = {}; sources: Record<string, { promoteId?: string }> = {}; layers: Record<string, { type: string }> = {}; hit: unknown[] = [];
     writes: Record<string, number> = {}; fitBounds = vi.fn();
+    layerOrder: string[] = [];
     resolveImage: (id: string) => unknown = () => {};
     canvas = document.createElement("div"); listeners = new globalThis.Map<string, Set<(event?: unknown) => void>>();
     images = new Set<string>(); addImage = vi.fn((id: string) => this.images.add(id));
@@ -32,7 +33,14 @@ vi.mock("maplibre-gl", () => ({
     getCanvas() { return this.canvas; } queryRenderedFeatures() { return this.hit; }
     addSource(id: string, source: { data: FeatureCollection; promoteId?: string }) { this.data[id] = source.data; this.sources[id] = source; }
     getSource(id: string) { return this.sources[id] ? { setData: (data: FeatureCollection) => { this.data[id] = data; this.writes[id] = (this.writes[id] ?? 0) + 1; } } : undefined; }
-    addLayer(layer: { id: string; type: string }) { this.layers[layer.id] = layer; } getLayer(id: string) { return this.layers[id]; }
+    addLayer(layer: { id: string; type: string }, beforeId?: string) {
+      if (beforeId && !this.layers[beforeId]) throw new Error("Layer not found");
+      this.layers[layer.id] = layer;
+      this.layerOrder.splice(beforeId ? this.layerOrder.indexOf(beforeId) : this.layerOrder.length, 0, layer.id);
+    }
+    getLayer(id: string) { return this.layers[id]; }
+    removeLayer(id: string) { this.layerOrder.splice(this.layerOrder.indexOf(id), 1); delete this.layers[id]; }
+    removeSource(id: string) { delete this.sources[id]; delete this.data[id]; }
     setPaintProperty(id: string, property: string, value: unknown) { const layer = this.layers[id] as { paint?: Record<string, unknown> }; (layer.paint ??= {})[property] = value; } hasImage(id: string) { return this.images.has(id); } updateImage() {}
   },
   Popup: class {
@@ -42,13 +50,127 @@ vi.mock("maplibre-gl", () => ({
   },
 }));
 const contact: MeshlogContact = { id: liveNode.id, name: "<img src=x> Relay", publicKey: liveNode.publicKey, kind: "client", node: { ...liveNode, nodeTypeName: "Room_Server", isObserver: true }, position: [24, 56], heard: "now", firstSeen: "—" };
-beforeEach(() => { boundary.maps.length = 0; flow.mockClear(); theme.paletteRev = 0; vi.mocked(rasterizeOverviewMarker).mockClear(); });
+beforeEach(() => { boundary.maps.length = 0; flow.mockReset(); theme.paletteRev = 0; vi.mocked(rasterizeOverviewMarker).mockClear(); });
 afterEach(() => { document.documentElement.style.removeProperty("--palette-green"); });
 
 describe("Meshlog map controls and role assets", () => {
   const path: PacketPath = { key: "packet:rx", label: "Observer", color: "#22c55e", points: [
     { id: contact.id, name: contact.name, lng: 24, lat: 56 }, { id: "relay", name: "Relay", lng: 25, lat: 57 }, { id: "rx", lng: 26, lat: 58, breakBefore: true },
   ] };
+  it("shows only the hover/pin union above overlapping unrelated nodes and restores pins, then the overview", () => {
+    const contacts = ["a-hovered", "m-pinned", "z-unrelated"].map(id => ({ ...contact, id }));
+    const hovered: PacketPath = { ...path, key: "hover", points: [{ id: "a-hovered", lng: 24, lat: 56 }] };
+    const pinned: PacketPath = { ...path, key: "pin", points: [{ id: "m-pinned", lng: 24, lat: 56 }] };
+    const view = render(<MeshlogMap contacts={contacts} />);
+    const map = boundary.maps[0]!; act(() => map.emit("load"));
+    const expectEmphasis = (ids: string[], order: string[]) => {
+      const opacity = ids.length ? ["case", ["in", ["get", "id"], ["literal", ids]], 1, 0] : 1;
+      expect(map.layers["meshlog-nodes"]!.paint!["icon-opacity"]).toEqual(opacity);
+      expect(map.layers["meshlog-node-observer-pips"]!.paint!["circle-opacity"]).toEqual(opacity);
+      expect(map.layers["meshlog-node-observer-pips"]!.paint!["circle-stroke-opacity"]).toEqual(opacity);
+      expect(map.layers["meshlog-node-labels"]!.paint!["text-opacity"]).toEqual(opacity);
+      expect(map.layers["meshlog-node-glow"]!.paint!["circle-opacity"]).toEqual(["*", ["coalesce", ["feature-state", "glow"], 0], .12, opacity]);
+      expect(map.layers["meshlog-nodes"]!.layout!["symbol-z-order"]).toBe("source");
+      expect(map.data["meshlog-nodes"]!.features.map(feature => feature.properties!.id)).toEqual(order);
+      expect(map.data["meshlog-nodes"]!.features.every(feature => JSON.stringify(feature.geometry) === JSON.stringify({ type: "Point", coordinates: [24, 56] }))).toBe(true);
+    };
+    expectEmphasis([], ["a-hovered", "m-pinned", "z-unrelated"]);
+    view.rerender(<MeshlogMap contacts={contacts} paths={[hovered]} />);
+    expectEmphasis(["a-hovered"], ["m-pinned", "z-unrelated", "a-hovered"]);
+    expect(screen.queryByRole("group", { name: /Pinned paths/ })).not.toBeInTheDocument();
+    view.rerender(<MeshlogMap contacts={contacts} paths={[pinned, hovered]} pinnedPaths={[pinned]} />);
+    expectEmphasis(["m-pinned", "a-hovered"], ["z-unrelated", "a-hovered", "m-pinned"]);
+    const writes = { ...map.writes };
+    view.rerender(<MeshlogMap contacts={contacts.map(node => ({ ...node, heard: "later" }))} paths={[{ ...pinned }, { ...hovered }]} pinnedPaths={[pinned]} />);
+    expect(map.writes).toEqual(writes);
+    view.rerender(<MeshlogMap contacts={contacts} paths={[pinned]} pinnedPaths={[pinned]} />);
+    expectEmphasis(["m-pinned"], ["a-hovered", "z-unrelated", "m-pinned"]);
+    view.rerender(<MeshlogMap contacts={contacts} paths={[]} pinnedPaths={[]} />);
+    expectEmphasis([], ["a-hovered", "m-pinned", "z-unrelated"]);
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+  });
+  it("clears hidden-node tooltips and ignores their hover/tap hits without removing flow nodes", () => {
+    const hidden = { ...contact, id: "unrelated", name: "Hidden observer" };
+    const contacts = [contact, hidden];
+    const view = render(<MeshlogMap contacts={contacts} />);
+    const map = boundary.maps[0]!; act(() => map.emit("load"));
+    map.hit = [{ properties: { id: hidden.id } }];
+    act(() => map.emit("click", { point: { x: 1, y: 1 } }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(hidden.name);
+    view.rerender(<MeshlogMap contacts={contacts} paths={[path]} />);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(flow.mock.lastCall![0].visibleNodes.features).toHaveLength(2);
+    for (const event of ["mousemove", "click"]) {
+      act(() => map.emit(event, { point: { x: 1, y: 1 }, originalEvent: { buttons: 0 } }));
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+      expect(map.canvas.style.cursor).toBe("");
+    }
+    map.hit = [{ properties: { id: contact.id } }];
+    act(() => map.emit("mousemove", { point: { x: 1, y: 1 }, originalEvent: { buttons: 0 } }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(contact.name);
+    view.rerender(<MeshlogMap contacts={contacts} paths={[path]} pinnedPaths={[path]} />);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(contact.name);
+    view.rerender(<MeshlogMap contacts={contacts} />);
+    map.hit = [{ properties: { id: hidden.id } }];
+    act(() => map.emit("click", { point: { x: 1, y: 1 } }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(hidden.name);
+  });
+  it("keeps live flow subtle and dims its fading fills, strokes and node glows further during inspection", async () => {
+    const { useMeshlogPacketFlow } = await vi.importActual<typeof import("../../../src/features/meshlog/useMeshlogPacketFlow")>("../../../src/features/meshlog/useMeshlogPacketFlow");
+    flow.mockImplementation(useMeshlogPacketFlow);
+    const view = render(<MeshlogMap contacts={[contact]} />);
+    const map = boundary.maps[0]!; act(() => map.emit("load"));
+    const expectFlowOpacity = (opacity: number) => {
+      for (const [id, property, scale] of [
+        ["packet-flow-trail", "line-opacity", 1], ["packet-flow-dot", "circle-opacity", 1],
+        ["packet-flow-dot", "circle-stroke-opacity", 1], ["packet-flow-dot-halo", "circle-opacity", .5],
+        ["packet-flow-ghosts", "circle-stroke-opacity", 1], ["packet-flow-anchors", "circle-opacity", 1],
+        ["packet-flow-anchors", "circle-stroke-opacity", 1],
+      ] as const) expect(map.layers[id]!.paint![property], `${id} ${property}`).toEqual(["*", ["get", "a"], opacity * scale]);
+      expect(map.layers["packet-flow-ghosts"]!.paint!["circle-opacity"]).toBe(0);
+    };
+    expectFlowOpacity(.45);
+    view.rerender(<MeshlogMap contacts={[contact]} paths={[path]} />);
+    expectFlowOpacity(.15);
+    expect(map.layers["meshlog-node-glow"]!.paint!["circle-opacity"]).toEqual(["*", ["coalesce", ["feature-state", "glow"], 0], .12, ["case", ["in", ["get", "id"], ["literal", [contact.id, "relay", "rx"]]], 1, 0]]);
+    view.rerender(<MeshlogMap contacts={[contact]} paths={[path]} pinnedPaths={[path]} />);
+    expectFlowOpacity(.15);
+    theme.paletteRev++;
+    view.rerender(<MeshlogMap contacts={[contact]} paths={[path]} pinnedPaths={[path]} />);
+    expectFlowOpacity(.15);
+    view.rerender(<MeshlogMap contacts={[contact]} />);
+    expectFlowOpacity(.45);
+    expect(map.layers["meshlog-node-glow"]!.paint!["circle-opacity"]).toEqual(["*", ["coalesce", ["feature-state", "glow"], 0], .12, 1]);
+  });
+  it.each([false, true])("keeps hover/pin paths above every marker when paths exist at load: %s, and after clearing", async pathsAtLoad => {
+    const { useMeshlogPacketFlow } = await vi.importActual<typeof import("../../../src/features/meshlog/useMeshlogPacketFlow")>("../../../src/features/meshlog/useMeshlogPacketFlow");
+    flow.mockImplementation(useMeshlogPacketFlow);
+    const view = render(<MeshlogMap contacts={[contact]} paths={pathsAtLoad ? [path] : []} />);
+    const map = boundary.maps[0]!;
+    act(() => map.emit("load"));
+    const overlays = ["pp-lines", "pp-nodes", "pp-node-labels"];
+    const expectForeground = () => {
+      const markers = ["meshlog-node-glow", "meshlog-nodes", "meshlog-node-observer-pips", "meshlog-node-labels", "packet-flow-ghosts", "packet-flow-anchors", "packet-flow-dot-halo", "packet-flow-dot"];
+      for (const marker of markers) {
+        expect(map.layers[marker]).toBeDefined();
+        expect(map.layerOrder.indexOf("pp-lines"), marker).toBeGreaterThan(map.layerOrder.indexOf(marker));
+      }
+      expect(map.layerOrder.slice(-3)).toEqual(overlays);
+    };
+    // Ready-state live-flow setup must not leave markers above the path overlay.
+    expectForeground();
+    view.rerender(<MeshlogMap contacts={[contact]} paths={[path]} />);
+    expectForeground();
+    expect(map.data["pp-lines"]!.features).toHaveLength(1);
+    view.rerender(<MeshlogMap contacts={[contact]} paths={[path]} pinnedPaths={[path]} />);
+    expectForeground();
+    view.rerender(<MeshlogMap contacts={[contact]} paths={[]} pinnedPaths={[]} />);
+    expect(map.data["pp-lines"]!.features).toHaveLength(0);
+    expect(map.data["pp-nodes"]!.features).toHaveLength(0);
+    view.rerender(<MeshlogMap contacts={[contact]} paths={[path]} />);
+    expectForeground();
+    expect(map.data["pp-lines"]!.features).toHaveLength(1);
+  });
   it("uses one non-SDF multicolor image per type, without a separate all-rings layer", () => {
     render(<MeshlogMap contacts={[contact]} />);
     const map = boundary.maps[0]!;
@@ -101,7 +223,7 @@ describe("Meshlog map controls and role assets", () => {
     expect(map.writes["pp-lines"]).toBe((baseline["pp-lines"] ?? 0) + 1);
   });
 
-  it("simplifies overview symbols, dims unrelated nodes for pins, and fits only on explicit request", () => {
+  it("simplifies overview symbols, hides unrelated nodes for pins, and fits only on explicit request", () => {
     const clear = vi.fn();
     const view = render(<MeshlogMap contacts={[contact]} onClearPaths={clear} />);
     const map = boundary.maps[0]!;
@@ -112,7 +234,7 @@ describe("Meshlog map controls and role assets", () => {
     expect(map.layers["meshlog-overview-rings"]).toBeUndefined();
     view.rerender(<MeshlogMap contacts={[contact]} paths={[path]} pinnedPaths={[path]} onClearPaths={clear} />);
     expect(map.fitBounds).toHaveBeenCalledTimes(1);
-    expect(map.layers["meshlog-nodes"]!.paint!["icon-opacity"]).toEqual(["case", ["in", ["get", "id"], ["literal", [contact.id, "relay", "rx"]]], 1, .18]);
+    expect(map.layers["meshlog-nodes"]!.paint!["icon-opacity"]).toEqual(["case", ["in", ["get", "id"], ["literal", [contact.id, "relay", "rx"]]], 1, 0]);
     expect(screen.getByRole("group", { name: "Pinned paths: 1" })).toHaveTextContent("1");
     fireEvent.click(screen.getByRole("button", { name: "Fit selected paths" }));
     expect(map.fitBounds).toHaveBeenLastCalledWith([[24, 56], [26, 58]], expect.objectContaining({ duration: 0 }));
